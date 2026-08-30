@@ -1,0 +1,112 @@
+# Site bundle — MegaCollect-aligned defaults (edit per robot cell)
+version: 1
+site: lab-default
+dry_run: false
+
+defaults:
+  arm:
+    backend: elite
+    robot_ip: "10.111.34.200"
+    zmq_host: "127.0.0.1"
+    zmq_port: 6001
+    io_collect_do: Y005
+    io_collect_di: X009
+  gello:
+    baudrate: 57600
+    max_delta_rad: 0.8
+    joint_ids: [1, 2, 3, 4, 5, 6, 7]
+  gripper:
+    baudrate: 115200
+    slave_id: 1
+    force: 100
+    speed: 100
+  realsense:
+    width: 1280
+    height: 720
+    fps: 15
+    exposure: 200
+    gain: 64
+
+devices:
+  - id: bus-main
+    kind: bus
+    name: "串口 / 端口映射"
+    endpoint: "/tmp/ttyUR"
+    params:
+      robot_ip: "10.111.34.200"
+      robot_tcp_port: 54321
+      local_pty: "/tmp/ttyUR"
+      expect_by_id:
+        - "FTAA088F"
+        - "AB0MIFS5"
+      socat_script: ""
+
+  - id: arm-follower
+    kind: arm
+    name: "机械臂 · Follower"
+    endpoint: "tcp://127.0.0.1:6001"
+    params:
+      backend: elite
+      robot_ip: "10.111.34.200"
+
+  - id: gello-leader
+    kind: gello
+    name: "Gello · Leader"
+    endpoint: "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTAA088F-if00-port0"
+    params:
+      port_substr: "FTAA088F"
+      gripper_config: null
+
+  - id: gripper-dh
+    kind: gripper
+    name: "DH AG95 夹爪"
+    endpoint: "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AB0MIFS5-if00-port0"
+    params:
+      port_substr: "AB0MIFS5"
+
+  - id: rs-left
+    kind: realsense
+    name: "RealSense · Left"
+    params:
+      role: left
+      serial: ""
+
+  - id: rs-right
+    kind: realsense
+    name: "RealSense · Right"
+    params:
+      role: right
+      serial: ""
+
+  - id: rs-middle
+    kind: realsense
+    name: "RealSense · Middle"
+    params:
+      role: middle
+      serial: ""
+
+  - id: pipeline-collect
+    kind: pipeline
+    name: "采集流水线"
+    params:
+      flag_shm: collection_flag
+      mosaic_shm: show_shared_array
+      joint_shm: joint_shared_array
+      mosaic_shape: [1440, 2560, 3]
+      joint_len: 12
+      remote_port: 12345
+      remote_hosts: []
+      index_file: ""
+      save_path: ""
+
+  - id: ft-wrist
+    kind: ft
+    name: "六维力（扩展）"
+    enabled: true
+    params: {}
+
+  - id: tactile-ext
+    kind: tactile
+    name: "触觉（扩展）"
+    enabled: false
+    params: {}
