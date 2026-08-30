@@ -62,6 +62,12 @@ class Sensor(ABC):
             raise RuntimeError(f"{self.id}: call open() before read()")
         return {}
 
+    def write(self, command: Mapping[str, Any]) -> Mapping[str, Any]:
+        """Optional actuator command. Override on CONTROL-capable drivers."""
+        if not self._opened:
+            raise RuntimeError(f"{self.id}: call open() before write()")
+        raise NotImplementedError(f"{self.id} ({self.kind.value}) does not support write()")
+
     def __enter__(self) -> "Sensor":
         self.open()
         return self

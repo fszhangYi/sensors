@@ -214,3 +214,44 @@ class DhAg95Sensor(Sensor):
             "port": self.port,
             "ts": ts,
         }
+
+    @staticmethod
+    def norm_to_raw(norm: float) -> int:
+        # MegaCollect: open≈0 → raw 1000, close≈0.637 → raw 0
+        n = float(norm)
+        return int(min(1.0, max(1.0 - n / 0.637, 0.0)) * 1000)
+
+    @staticmethod
+    def raw_to_norm(raw: int) -> float:
+        return (1000 - int(raw)) * NORM_SCALE
+
+    def write(self, command: Mapping[str, Any]) -> Mapping[str, Any]:
+        if not self._opened:
+            raise RuntimeError(f"{self.id}: call open() before write()")
+
+        if "position_raw" in command and command.get("position_raw") is not None:
+            raw = int(command["position_raw"])
+        elif "position_norm" in command and command.get("position_norm") is not None:
+            raw = self.norm_to_raw(float(command["position_norm"]))
+        else:
+            raise ValueError("gripper write() requires position_norm or position_raw")
+
+        raw = max(0, min(1000, raw))
+        norm = self.raw_to_norm(raw)
+        if self.ctx.dry_run or self._ser is None:
+            return {
+                "ok": True,
+                "dry_run": True,
+                "position_raw": raw,
+                "position_norm": norm,
+                "ts": time.time(),
+            }
+
+        ok = self._write_register(REG_POSITION, raw)
+        return {
+            "ok": ok,
+            "dry_run": False,
+            "position_raw": raw,
+            "position_norm": norm,
+            "ts": time.time(),
+        }

@@ -48,6 +48,13 @@ devices:
     params:
       backend: elite
       robot_ip: "10.111.34.200"
+      num_joints: 6
+      # float affine per DOF (scale may be negative): display = read_scale * raw + read_offset
+      read_scale: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+      read_offset: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+      # real_cmd = write_scale * display + write_offset
+      write_scale: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+      write_offset: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
   - id: gello-leader
     kind: gello
@@ -63,6 +70,11 @@ devices:
     endpoint: "/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_AB0MIFS5-if00-port0"
     params:
       port_substr: "AB0MIFS5"
+      # float affine; e.g. read_scale: [-1.0] inverts axis
+      read_scale: [1.0]
+      read_offset: [0.0]
+      write_scale: [1.0]
+      write_offset: [0.0]
 
   - id: rs-left
     kind: realsense
@@ -85,28 +97,25 @@ devices:
       role: middle
       serial: ""
 
-  - id: pipeline-collect
-    kind: pipeline
-    name: "采集流水线"
-    params:
-      flag_shm: collection_flag
-      mosaic_shm: show_shared_array
-      joint_shm: joint_shared_array
-      mosaic_shape: [1440, 2560, 3]
-      joint_len: 12
-      remote_port: 12345
-      remote_hosts: []
-      index_file: ""
-      save_path: ""
-
   - id: ft-wrist
     kind: ft
     name: "六维力（扩展）"
     enabled: true
-    params: {}
+    params:
+      # HIK_LMM_FORCE_TORQUE: force[3] + torque[3]
+      # Not Paxini tactile; not DH gripper target_force (see dh_ag95_force.py).
+      endpoint: "wrist-ft"
+      backend: stub
+      bias: [0, 0, 0, 0, 0, 0]
 
-  - id: tactile-ext
+  - id: tactile-paxini
     kind: tactile
-    name: "触觉（扩展）"
-    enabled: false
-    params: {}
+    name: "帕西尼触觉"
+    enabled: true
+    params:
+      # hik_gello/gello/robots/get_paxini_data.py — PaxiniHandler
+      dll_path: ""
+      paxini_channel: 5
+      port: ""
+      group_index: 0
+      dry_run_groups: 2

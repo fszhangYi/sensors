@@ -31,7 +31,10 @@ class FollowerArmSensor(Sensor):
         self.robot_tcp_port = int(config.get("robot_tcp_port", 54321))
         self.rcv_timeout_ms = int(config.get("rcv_timeout_ms", 1000))
         self.snd_timeout_ms = int(config.get("snd_timeout_ms", 1000))
+        self.num_joints = int(config.get("num_joints", 6))
+        self.command_method = str(config.get("command_method", "command_joint_state"))
         self._socket = None
+        self._last_joints: list[float] | None = None
 
     @property
     def endpoint(self) -> str:
@@ -131,6 +134,8 @@ class FollowerArmSensor(Sensor):
         if self.ctx.dry_run or self._socket is None:
             return {
                 "joints": None,
+                "arm_joints": None,
+                "num_joints": self.num_joints,
                 "endpoint": self.endpoint,
                 "backend": self.backend,
                 "dry_run": True,
@@ -142,10 +147,63 @@ class FollowerArmSensor(Sensor):
         elif hasattr(joints, "tolist"):
             joints_out = joints.tolist()
         else:
-            joints_out = joints
+            joints_out = list(joints) if joints is not None else None
+        if isinstance(joints_out, list):
+            self._last_joints = [float(x) for x in joints_out]
+            arm_joints = self._last_joints[: self.num_joints]
+        else:
+            arm_joints = None
         return {
             "joints": joints_out,
+            "arm_joints": arm_joints,
+            "num_joints": self.num_joints,
             "endpoint": self.endpoint,
             "backend": self.backend,
             "ts": ts,
+        }
+
+    def write(self, command: Mapping[str, Any]) -> Mapping[str, Any]:
+        if not self._opened:
+            raise RuntimeError(f"{self.id}: call open() before write()")
+        n = self.num_joints
+        raw = command.get("joints")
+        if raw is None:
+            raise ValueError("arm write() requires command['joints']")
+        target = [float(x) for x in list(raw)[:n]]
+        if len(target) < n:
+            raise ValueError(f"arm write() needs {n} joints, got {len(target)}")
+
+        method = str(command.get("method") or self.command_method)
+        if self.ctx.dry_run or self._socket is None:
+            return {
+                "ok": True,
+                "dry_run": True,
+                "method": method,
+                "joints": target,
+                "ts": time.time(),
+            }
+
+        # Preserve extra dims (e.g. gripper as 7th) from last/current state when present.
+        full = list(target)
+        try:
+            current = self._rpc("get_joint_state")
+            cur = np.asarray(current, dtype=float).ravel().tolist()
+            if len(cur) > n:
+                full = cur[:]
+                full[:n] = target
+        except Exception:  # noqa: BLE001
+            if self._last_joints and len(self._last_joints) > n:
+                full = self._last_joints[:]
+                full[:n] = target
+
+        result = self._rpc(method, {"joint_state": np.asarray(full, dtype=float)})
+        self._last_joints = list(full)
+        return {
+            "ok": True,
+            "dry_run": False,
+            "method": method,
+            "joints": target,
+            "command_full": full,
+            "result": result if not isinstance(result, np.ndarray) else result.tolist(),
+            "ts": time.time(),
         }

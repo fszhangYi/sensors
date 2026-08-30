@@ -38,17 +38,27 @@ def test_probe_all_smoke():
     reports = mgr.probe_all()
     assert len(reports) >= 8
     by_id = {r.sensor_id: r for r in reports}
-    assert by_id["ft-wrist"].status.value == "unsupported"
+    assert by_id["ft-wrist"].status.value == "ok"
+    assert by_id["tactile-paxini"].status.value == "ok"
     assert "arm-follower" in by_id
     assert "bus-main" in by_id
 
 
 def test_dry_run_open_read_serial_zmq_realsense():
     mgr = SensorManager.from_yaml(CFG, dry_run=True)
-    for sid in ("bus-main", "arm-follower", "gripper-dh", "gello-leader", "rs-left"):
+    for sid in ("bus-main", "arm-follower", "gripper-dh", "gello-leader", "rs-left", "ft-wrist", "tactile-paxini"):
         sample = mgr.read(sid)
         assert sample.get("dry_run") is True
         assert "ts" in sample
+    ft = mgr.read("ft-wrist")
+    assert len(ft["force"]) == 3 and len(ft["torque"]) == 3
+    assert len(ft["wrench"]) == 6
+    assert "force_smooth" not in ft
+    tac = mgr.read("tactile-paxini")
+    assert len(tac["rest_force"]) == 3
+    assert "contact_force" in tac
+    assert len(tac["component_forces"]) == 60
+    assert tac["num"] >= 1
 
 
 def test_modbus_crc_stable():
