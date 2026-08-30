@@ -16,11 +16,12 @@ htmlcov/
 .venv/
 venv/
 
-# Editor / OS
+# Editor / OS / notebooks
 .idea/
 .vscode/
 *.swp
 .DS_Store
+.ipynb_checkpoints/
 
 # Local runtime
 *.log
