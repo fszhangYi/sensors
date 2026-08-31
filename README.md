@@ -28,7 +28,7 @@ src/sensors/
 | DH 夹爪 | `gripper` | `DhAg95Sensor` | Modbus RTU 位置反馈 |
 | RealSense L/R/M | `realsense` | `RealSenseSensor` | pipeline color(+depth) |
 | 数据采集 | `pipeline` | `CollectPipelineSensor` | probe（SHM） |
-| （扩展） | `ft` | `ForceTorqueSensor` | HIK_LMM 形 force[3]+torque[3]；dry-run；≠触觉/夹爪力 |
+| （扩展） | `ft` | `ForceTorqueSensor` | HIK 串口 460800，force[3]+torque[3]；dry-run；≠触觉/夹爪力 |
 | （扩展） | `tactile` | `PaxiniTactileSensor` | 帕西尼 rest_force + 60 点分力（get_paxini_data） |
 
 每个驱动实现同一协议：`probe()`（只读）/ `open()` / `close()` / `read()`，用 `@register_sensor(kind)` 注册。新增设备：写驱动 + YAML 一条，无需改 Manager。

@@ -64,6 +64,21 @@ def load_bundle_config(path: str | Path) -> BundleConfig:
     return BundleConfig.model_validate(merged)
 
 
+def coerce_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        return bool(value)
+    s = str(value).strip().lower()
+    if s in ("0", "false", "no", "off", ""):
+        return False
+    if s in ("1", "true", "yes", "on"):
+        return True
+    return default
+
+
 def device_to_sensor_config(dev: DeviceConfig, kind_defaults: Mapping[str, Any] | None = None) -> dict[str, Any]:
     cfg: dict[str, Any] = dict(kind_defaults or {})
     cfg.update(dev.params)

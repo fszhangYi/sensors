@@ -18,14 +18,22 @@ defaults:
   gripper:
     baudrate: 115200
     slave_id: 1
-    force: 100
-    speed: 100
+    default_force: 100
+    default_speed: 100
+    init_on_open: false
+  ft:
+    baudrate: 460800
+    timeout_ms: 500
+    bias: [0, 0, 0, 0, 0, 0]
   realsense:
     width: 1280
     height: 720
     fps: 15
     exposure: 200
     gain: 64
+    enable_depth: true
+    align_to_color: true
+    timeout_ms: 5000
 
 devices:
   - id: bus-main
@@ -102,10 +110,10 @@ devices:
     name: "六维力（扩展）"
     enabled: true
     params:
-      # HIK_LMM_FORCE_TORQUE: force[3] + torque[3]
-      # Not Paxini tactile; not DH gripper target_force (see dh_ag95_force.py).
-      endpoint: "wrist-ft"
-      backend: stub
+      port: ""
+      port_substr: ""
+      baudrate: 460800
+      timeout_ms: 500
       bias: [0, 0, 0, 0, 0, 0]
 
   - id: tactile-paxini

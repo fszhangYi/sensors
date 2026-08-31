@@ -102,7 +102,134 @@ def test_gripper_dry_read():
     sensor = DhAg95Sensor("g", {}, SensorContext(dry_run=True))
     sensor.open()
     sample = sensor.read()
-    assert sample["position_raw"] is None
+    assert sample["position_raw"] is not None
+    sensor.close()
+
+
+def test_gripper_calibrate_dry_run():
+    sensor = DhAg95Sensor("g", {}, SensorContext(dry_run=True))
+    sensor.open()
+    result = sensor.write({"calibrate": True})
+    assert result["ok"] is True
+    assert result["position_raw_min"] is not None
+    assert result["position_raw_max"] > result["position_raw_min"]
+    sensor.close()
+
+
+def test_ft_serial_frame_parse():
+    import struct
+    import sys
+
+    from sensors.drivers.extensions.force_torque import (
+        FRAME_SIZE,
+        normalize_serial_port,
+        parse_wrench_frame,
+        pop_wrench_frame_from_buffer,
+    )
+
+    if sys.platform == "win32":
+        assert normalize_serial_port("COM5") == "\\\\.\\COM5"
+    else:
+        assert normalize_serial_port("COM5") == "COM5"
+    payload = struct.pack("<6f", 1.0, 2.0, 3.0, 0.1, 0.2, 0.3)
+    frame = bytes([0x49, 0xAA]) + payload + bytes([0x0D, 0x0A])
+    assert len(frame) == FRAME_SIZE
+    force, torque = parse_wrench_frame(frame)
+    assert force[0] == pytest.approx(1.0)
+    assert torque[2] == pytest.approx(0.3)
+
+
+def _ft_test_frame(seq: float) -> bytes:
+    import struct
+
+    from sensors.drivers.extensions.force_torque import FRAME_SIZE
+
+    payload = struct.pack("<6f", seq, 0.0, 0.0, 0.0, 0.0, 0.0)
+    frame = bytes([0x49, 0xAA]) + payload + bytes([0x0D, 0x0A])
+    assert len(frame) == FRAME_SIZE
+    return frame
+
+
+def test_ft_buffer_pop_latest_skips_stale():
+    from sensors.drivers.extensions.force_torque import pop_wrench_frame_from_buffer
+
+    buf = bytearray(_ft_test_frame(1.0) + _ft_test_frame(2.0) + _ft_test_frame(3.0))
+    frame = pop_wrench_frame_from_buffer(buf, latest=True)
+    assert frame is not None
+    import struct
+
+    fx = struct.unpack("<6f", frame[2:26])[0]
+    assert fx == pytest.approx(3.0)
+    assert len(buf) == 0
+
+
+def test_ft_continuous_read_does_not_retrigger_start():
+    from sensors.drivers.extensions.force_torque import ForceTorqueSensor
+
+    sensor = ForceTorqueSensor("ft", {"port": "COM5", "timeout_ms": 200}, SensorContext(dry_run=False))
+    mock_ser = MagicMock()
+    mock_ser.is_open = True
+    frames = [_ft_test_frame(1.0), _ft_test_frame(2.0)]
+
+    def read_side_effect(size=-1):
+        if mock_ser.in_waiting:
+            data = frames.pop(0) if frames else b""
+            mock_ser.in_waiting = 0
+            return data
+        return b""
+
+    def in_waiting_side_effect():
+        return len(frames) * 28 if frames else 0
+
+    mock_ser.in_waiting = 28
+    mock_ser.read.side_effect = read_side_effect
+    sensor._ser = mock_ser
+    sensor._opened = True
+    sensor._sampling = True
+    sensor._rx_buf = bytearray()
+
+    fx1, _ = sensor._read_wrench()
+    assert fx1[0] == pytest.approx(1.0)
+    assert mock_ser.write.call_count == 0
+
+    mock_ser.in_waiting = 28
+    fx2, _ = sensor._read_wrench()
+    assert fx2[0] == pytest.approx(2.0)
+    for call in mock_ser.write.call_args_list:
+        assert call.args[0] != bytes([0x49, 0xAA, 0x0D, 0x0A])
+
+
+def test_ft_dry_run_tare():
+    from sensors.drivers.extensions.force_torque import ForceTorqueSensor
+
+    sensor = ForceTorqueSensor("ft", {}, SensorContext(dry_run=True))
+    sensor.open()
+    sample = sensor.read()
+    assert len(sample["wrench"]) == 6
+    result = sensor.write({"tare": True})
+    assert result["ok"] is True
+    sensor.close()
+
+
+def test_realsense_fps_fallback_prefers_nearest():
+    from sensors.drivers.camera.realsense import _fps_fallback_order
+
+    assert _fps_fallback_order(5)[0] == 5
+    # nearest discrete after exact miss should be 6, not 30
+    assert _fps_fallback_order(5)[1] == 6
+    assert _fps_fallback_order(5)[2] == 15
+    assert 30 in _fps_fallback_order(5)
+    assert _fps_fallback_order(15)[0] == 15
+    assert _fps_fallback_order(12)[0] == 12
+    assert _fps_fallback_order(12)[1] == 15
+
+
+def test_realsense_dry_read_stream_params():
+    sensor = RealSenseSensor("rs", {"role": "left", "enable_depth": False}, SensorContext(dry_run=True))
+    sensor.open()
+    sample = sensor.read()
+    assert sample["width"] == 1280
+    assert sample["enable_depth"] is False
     sensor.close()
 
 

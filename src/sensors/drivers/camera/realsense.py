@@ -6,6 +6,7 @@ from typing import Any, Mapping
 import numpy as np
 
 from sensors.core.base import Sensor, SensorCapability, SensorContext
+from sensors.core.config import coerce_bool
 from sensors.core.health import CheckResult, HealthReport, HealthStatus
 from sensors.core.kinds import SensorKind
 from sensors.core.registry import register_sensor
@@ -16,6 +17,16 @@ DEFAULT_ROLE_SERIALS: dict[str, list[str]] = {
     "right": ["317222073322", "233622076758", "337122074288"],
     "middle": [],
 }
+
+# D400 color (BGR8) typically only accepts these discrete rates — not 5/10/20.
+REALSENSE_COMMON_FPS = (6, 15, 30, 60)
+
+
+def _fps_fallback_order(requested: int) -> list[int]:
+    """Prefer the requested rate, then the nearest supported discrete rates (lower first on ties)."""
+    req = max(1, int(requested))
+    known = {req, *REALSENSE_COMMON_FPS}
+    return sorted(known, key=lambda f: (abs(f - req), f))
 
 
 @register_sensor(SensorKind.REALSENSE)
@@ -34,13 +45,15 @@ class RealSenseSensor(Sensor):
         self.fps = int(config.get("fps", 15))
         self.exposure = int(config.get("exposure", 200))
         self.gain = int(config.get("gain", 64))
-        self.enable_depth = bool(config.get("enable_depth", True))
-        self.align_to_color = bool(config.get("align_to_color", True))
+        self.enable_depth = coerce_bool(config.get("enable_depth"), True)
+        self.align_to_color = coerce_bool(config.get("align_to_color"), True)
+        self._stream_requested = (self.width, self.height, self.fps, self.enable_depth)
         self.timeout_ms = int(config.get("timeout_ms", 5000))
         self.role_serials = dict(config.get("role_serials") or DEFAULT_ROLE_SERIALS)
         self._pipeline = None
         self._align = None
         self._active_serial: str | None = None
+        self._fps_requested = self.fps
 
     def _match_role(self, serial: str) -> str:
         for role, serials in self.role_serials.items():
@@ -130,8 +143,50 @@ class RealSenseSensor(Sensor):
             ],
         )
 
+    def _refresh_stream_config(self) -> None:
+        self.width = int(self.config.get("width", self.width))
+        self.height = int(self.config.get("height", self.height))
+        self.fps = int(float(self.config.get("fps", self.fps)))
+        self.exposure = int(float(self.config.get("exposure", self.exposure)))
+        self.gain = int(float(self.config.get("gain", self.gain)))
+        self.enable_depth = coerce_bool(self.config.get("enable_depth"), self.enable_depth)
+        self.align_to_color = coerce_bool(self.config.get("align_to_color"), self.align_to_color)
+        self._stream_requested = (self.width, self.height, self.fps, self.enable_depth)
+
+    def _pipeline_candidates(self) -> list[tuple[int, int, int, bool]]:
+        req_w, req_h, req_fps, req_depth = self._stream_requested
+        seen: set[tuple[int, int, int, bool]] = set()
+        out: list[tuple[int, int, int, bool]] = []
+
+        def add(w: int, h: int, fps: int, depth: bool) -> None:
+            key = (w, h, fps, depth)
+            if key not in seen:
+                seen.add(key)
+                out.append(key)
+
+        fps_order = _fps_fallback_order(req_fps)
+        # 1) Exact request (and depth off) before changing resolution
+        for depth in (req_depth, False):
+            for fps in fps_order:
+                add(req_w, req_h, fps, depth)
+        # 2) Common resolutions with nearest fps
+        for w, h in ((1280, 720), (640, 480)):
+            for depth in (req_depth, False):
+                for fps in fps_order:
+                    add(w, h, fps, depth)
+        return out
+
+    def _actual_video_fps(self, rs: Any, profile: Any) -> int:
+        """Read the fps librealsense actually negotiated for the color stream."""
+        try:
+            stream = profile.get_stream(rs.stream.color).as_video_stream_profile()
+            return int(stream.fps())
+        except Exception:  # noqa: BLE001
+            return int(self.fps)
+
     def open(self) -> None:
         if self.ctx.dry_run:
+            self._refresh_stream_config()
             self._opened = True
             return
         try:
@@ -150,14 +205,8 @@ class RealSenseSensor(Sensor):
         if not serial:
             raise RuntimeError(f"{self.id}: no RealSense device for role={self.role} serial={self.serial!r}")
 
-        pipeline = rs.pipeline()
-        config = rs.config()
-        config.enable_device(serial)
-        config.enable_stream(rs.stream.color, self.width, self.height, rs.format.bgr8, self.fps)
-        if self.enable_depth:
-            config.enable_stream(rs.stream.depth, self.width, self.height, rs.format.z16, self.fps)
-
-        profile = pipeline.start(config)
+        self._refresh_stream_config()
+        pipeline, profile = self._start_pipeline(rs, serial)
         # MegaCollect: disable auto-exposure, fixed exposure/gain
         try:
             device = profile.get_device()
@@ -176,6 +225,47 @@ class RealSenseSensor(Sensor):
         self._align = rs.align(rs.stream.color) if self.enable_depth and self.align_to_color else None
         self._active_serial = serial
         self._opened = True
+        for _ in range(5):
+            try:
+                pipeline.wait_for_frames(300)
+            except Exception:  # noqa: BLE001
+                break
+
+    def _start_pipeline(self, rs: Any, serial: str) -> tuple[Any, Any]:
+        """Pick a supported profile (resolve first to avoid long failed starts)."""
+        req_w, req_h, req_fps, req_depth = self._stream_requested
+        self._fps_requested = req_fps
+        candidates = self._pipeline_candidates()
+
+        last_err: Exception | None = None
+        for w, h, fps, depth in candidates:
+            pipeline = rs.pipeline()
+            cfg = rs.config()
+            cfg.enable_device(serial)
+            try:
+                cfg.enable_stream(rs.stream.color, w, h, rs.format.bgr8, fps)
+                if depth:
+                    cfg.enable_stream(rs.stream.depth, w, h, rs.format.z16, fps)
+                cfg.resolve(pipeline)
+                profile = pipeline.start(cfg)
+                self.width = w
+                self.height = h
+                self.fps = self._actual_video_fps(rs, profile) or fps
+                self.enable_depth = depth
+                if not depth:
+                    self.align_to_color = False
+                return pipeline, profile
+            except Exception as e:  # noqa: BLE001
+                last_err = e
+                try:
+                    pipeline.stop()
+                except Exception:  # noqa: BLE001
+                    pass
+
+        hint = f"requested {req_w}x{req_h}@{req_fps} depth={req_depth}"
+        raise RuntimeError(
+            f"{self.id}: couldn't resolve requests ({hint}): {last_err}"
+        ) from last_err
 
     def close(self) -> None:
         if self._pipeline is not None:
@@ -195,13 +285,27 @@ class RealSenseSensor(Sensor):
             return {
                 "serial": self.serial or None,
                 "role": self.role,
+                "width": self.width,
+                "height": self.height,
+                "fps": self.fps,
+                "fps_requested": getattr(self, "_fps_requested", self.fps),
+                "enable_depth": self.enable_depth,
+                "align_to_color": self.align_to_color,
                 "color": None,
                 "depth": None,
                 "dry_run": True,
                 "ts": ts,
             }
 
-        frames = self._pipeline.wait_for_frames(self.timeout_ms)
+        frames = None
+        for _ in range(3):
+            try:
+                frames = self._pipeline.wait_for_frames(min(self.timeout_ms, 1500))
+                break
+            except Exception:  # noqa: BLE001
+                time.sleep(0.05)
+        if frames is None:
+            raise RuntimeError(f"{self.id}: no frames within {min(self.timeout_ms, 1500)}ms")
         if self._align is not None:
             frames = self._align.process(frames)
 
@@ -219,6 +323,12 @@ class RealSenseSensor(Sensor):
         return {
             "serial": self._active_serial,
             "role": self.role,
+            "width": self.width,
+            "height": self.height,
+            "fps": self.fps,
+            "fps_requested": getattr(self, "_fps_requested", self.fps),
+            "enable_depth": self.enable_depth,
+            "align_to_color": self.align_to_color,
             "color": color,
             "depth": depth,
             "color_shape": tuple(color.shape),
