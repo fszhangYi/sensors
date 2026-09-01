@@ -18,7 +18,12 @@ class FollowerArmSensor(Sensor):
     """Follower arm: MegaCollect Server, ZMQ REP default :6001 (UR | Elite)."""
 
     kind = SensorKind.ARM
-    capabilities = SensorCapability.PROBE | SensorCapability.SAMPLE | SensorCapability.CONTROL
+    capabilities = (
+        SensorCapability.PROBE
+        | SensorCapability.SAMPLE
+        | SensorCapability.CONTROL
+        | SensorCapability.RATE_PROBE
+    )
 
     def __init__(self, sensor_id: str, config: Mapping[str, Any], ctx: SensorContext | None = None):
         super().__init__(sensor_id, config, ctx)
@@ -207,3 +212,50 @@ class FollowerArmSensor(Sensor):
             "result": result if not isinstance(result, np.ndarray) else result.tolist(),
             "ts": time.time(),
         }
+
+    def _probe_joint_state_once(self) -> None:
+        """One ZMQ get_joint_state RPC (no sample dict)."""
+        if self.ctx.dry_run or self._socket is None:
+            return
+        self._rpc("get_joint_state")
+
+    def probe_max_read_hz(self, duration_s: float = 5.0) -> dict[str, Any]:
+        """Tight ZMQ get_joint_state loop — not sample read()."""
+        from sensors.core.rate_probe import clamp_duration, rate_probe_fail, rate_probe_ok
+
+        if not self._opened:
+            raise RuntimeError(f"{self.id}: call open() before probe_max_read_hz()")
+        duration_s = clamp_duration(duration_s)
+        times: list[float] = []
+        errors = 0
+        last_error: str | None = None
+        t0 = time.perf_counter()
+        deadline = t0 + duration_s
+        dry = bool(self.ctx.dry_run or self._socket is None)
+        while time.perf_counter() < deadline:
+            try:
+                self._probe_joint_state_once()
+                times.append(time.perf_counter())
+            except Exception as e:  # noqa: BLE001
+                errors += 1
+                last_error = str(e)
+                if errors >= 8 and len(times) < 3:
+                    break
+        if len(times) < 3:
+            return rate_probe_fail(
+                error=last_error or "arm read probe produced too few samples",
+                method="arm_zmq_get_joint_state",
+                samples=len(times),
+                errors=errors,
+                duration_s=time.perf_counter() - t0,
+                dry_run=dry,
+                last_error=last_error,
+            )
+        return rate_probe_ok(
+            times,
+            method="arm_zmq_get_joint_state",
+            errors=errors,
+            t0=t0,
+            dry_run=dry,
+            last_error=last_error,
+        )

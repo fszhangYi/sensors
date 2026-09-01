@@ -89,6 +89,7 @@ devices:
     name: "RealSense · Left"
     params:
       role: left
+      # Required: match this exact camera (no role/USB auto-pick).
       serial: ""
 
   - id: rs-right

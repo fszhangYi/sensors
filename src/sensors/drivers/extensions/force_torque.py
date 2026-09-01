@@ -107,7 +107,12 @@ class ForceTorqueSensor(Sensor):
     """HIK wrist F/T over pyserial — same lifecycle as gello / gripper drivers."""
 
     kind = SensorKind.FT
-    capabilities = SensorCapability.PROBE | SensorCapability.SAMPLE | SensorCapability.CONTROL
+    capabilities = (
+        SensorCapability.PROBE
+        | SensorCapability.SAMPLE
+        | SensorCapability.CONTROL
+        | SensorCapability.RATE_PROBE
+    )
 
     def __init__(self, sensor_id: str, config: Mapping[str, Any], ctx: SensorContext | None = None):
         super().__init__(sensor_id, config, ctx)
@@ -355,40 +360,32 @@ class ForceTorqueSensor(Sensor):
         Live: drain RX and pop every valid 28-byte frame for ``duration_s``.
         dry-run: synthetic tight loop so the probe still returns real timings.
         """
-        duration_s = max(0.5, float(duration_s))
+        from sensors.core.rate_probe import clamp_duration, rate_probe_fail, rate_probe_ok
+
+        duration_s = clamp_duration(duration_s)
         if self.ctx.dry_run:
             times: list[float] = []
             t0 = time.perf_counter()
             deadline = t0 + duration_s
             while time.perf_counter() < deadline:
-                self.read()
+                # Synthetic stream tick — no read() sample dict.
                 times.append(time.perf_counter())
-            span = times[-1] - times[0] if len(times) >= 2 else 0.0
-            measured = ((len(times) - 1) / span) if span > 0 else None
-            if measured is None:
-                return {
-                    "ok": False,
-                    "error": "dry-run read probe produced too few samples",
-                    "samples": len(times),
-                    "errors": 0,
-                    "duration_s": round(time.perf_counter() - t0, 3),
-                    "method": "ft_dry_run_loop",
-                    "dry_run": True,
-                }
-            cap = max(0.2, math.floor(measured * 0.95 * 10) / 10)
-            return {
-                "ok": True,
-                "samples": len(times),
-                "errors": 0,
-                "duration_s": round(time.perf_counter() - t0, 3),
-                "measured_hz": round(measured, 3),
-                "read_cap_hz": cap,
-                "method": "ft_dry_run_loop",
-                "dry_run": True,
-            }
+            if len(times) < 3:
+                return rate_probe_fail(
+                    error="dry-run read probe produced too few samples",
+                    method="ft_dry_run_loop",
+                    samples=len(times),
+                    duration_s=time.perf_counter() - t0,
+                    dry_run=True,
+                )
+            return rate_probe_ok(times, method="ft_dry_run_loop", t0=t0, dry_run=True)
 
         if self._ser is None:
-            return {"ok": False, "error": "serial port not open", "method": "ft_stream_frames"}
+            return rate_probe_fail(
+                error="serial port not open",
+                method="ft_stream_frames",
+                dry_run=False,
+            )
 
         # Warm the stream briefly so START has produced frames before we count.
         warm_deadline = time.perf_counter() + 0.25
@@ -419,33 +416,19 @@ class ForceTorqueSensor(Sensor):
                 errors += 1
                 if errors >= 8 and len(times) < 3:
                     break
-        elapsed = max(1e-9, time.perf_counter() - t0)
         if len(times) < 3:
-            return {
-                "ok": False,
-                "error": f"too few F/T frames ({len(times)}); check port/baud/START stream",
-                "samples": len(times),
-                "errors": errors,
-                "duration_s": round(elapsed, 3),
-                "method": "ft_stream_frames",
-                "dry_run": False,
-            }
-        span = times[-1] - times[0]
-        measured = (len(times) - 1) / span if span > 0 else len(times) / elapsed
-        cap = max(0.2, math.floor(measured * 0.95 * 10) / 10)
-        dts = sorted((times[i] - times[i - 1]) * 1000.0 for i in range(1, len(times)))
-        mid = dts[len(dts) // 2]
-        p95 = dts[min(len(dts) - 1, int(len(dts) * 0.95))]
-        return {
-            "ok": True,
-            "samples": len(times),
-            "errors": errors,
-            "duration_s": round(elapsed, 3),
-            "measured_hz": round(float(measured), 3),
-            "read_cap_hz": cap,
-            "method": "ft_stream_frames",
-            "dry_run": False,
-            "dt_ms_p50": round(mid, 3),
-            "dt_ms_p95": round(p95, 3),
-            "dt_ms_mean": round(sum(dts) / len(dts), 3),
-        }
+            return rate_probe_fail(
+                error=f"too few F/T frames ({len(times)}); check port/baud/START stream",
+                method="ft_stream_frames",
+                samples=len(times),
+                errors=errors,
+                duration_s=time.perf_counter() - t0,
+                dry_run=False,
+            )
+        return rate_probe_ok(
+            times,
+            method="ft_stream_frames",
+            errors=errors,
+            t0=t0,
+            dry_run=False,
+        )

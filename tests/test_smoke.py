@@ -116,6 +116,31 @@ def test_gripper_calibrate_dry_run():
     sensor.close()
 
 
+def test_gripper_initialize_dry_run():
+    sensor = DhAg95Sensor("g", {}, SensorContext(dry_run=True))
+    sensor.open()
+    assert sensor.initialized is False
+    result = sensor.initialize()
+    assert result["ok"] is True
+    assert result["initialized"] is True
+    assert sensor.initialized is True
+    legacy = sensor.write({"initialize": True})
+    assert legacy["ok"] is True
+    assert legacy["initialized"] is True
+    sensor.close()
+    assert sensor.initialized is False
+
+
+def test_base_initialize_default():
+    sensor = SerialBusSensor("bus", {}, SensorContext(dry_run=True))
+    sensor.open()
+    result = sensor.initialize()
+    assert result["ok"] is True
+    assert result["skipped"] is True
+    assert sensor.initialized is True
+    sensor.close()
+
+
 def test_ft_serial_frame_parse():
     import struct
     import sys
@@ -238,4 +263,49 @@ def test_gello_dry_read():
     sensor.open()
     sample = sensor.read()
     assert sample["joints_rad"] is None
+    sensor.close()
+
+
+def test_rate_probe_dry_run_all_kinds():
+    load_all_drivers()
+    cases = [
+        (GelloLeaderSensor, "gello", {}),
+        (DhAg95Sensor, "gripper", {}),
+        (RealSenseSensor, "realsense", {"role": "left"}),
+        (FollowerArmSensor, "arm", {}),
+        (SerialBusSensor, "bus", {}),
+    ]
+    from sensors.drivers.extensions.force_torque import ForceTorqueSensor
+    from sensors.drivers.extensions.paxini import PaxiniTactileSensor
+    from sensors.drivers.pipeline.collect import CollectPipelineSensor
+
+    cases.extend(
+        [
+            (ForceTorqueSensor, "ft", {}),
+            (PaxiniTactileSensor, "tactile", {}),
+            (CollectPipelineSensor, "pipeline", {}),
+        ]
+    )
+    for cls, kind, cfg in cases:
+        sensor = cls(f"probe-{kind}", cfg, SensorContext(dry_run=True))
+        sensor.open()
+        probe = sensor.probe_max_read_hz(duration_s=0.6)
+        if kind in ("bus", "pipeline"):
+            assert probe.get("unsupported") is True
+            assert probe.get("ok") is False
+        else:
+            assert probe.get("ok") is True, (kind, probe)
+            assert probe.get("measured_hz", 0) > 0
+            assert probe.get("read_cap_hz", 0) > 0
+            assert probe.get("method")
+        sensor.close()
+
+
+def test_gripper_sync_write_probe_dry_run():
+    sensor = DhAg95Sensor("g", {}, SensorContext(dry_run=True))
+    sensor.open()
+    probe = sensor.probe_max_sync_write_hz(duration_s=0.6, baseline_s=0.5)
+    assert probe.get("ok") is True
+    assert probe.get("max_sync_write_hz", 0) > 0
+    assert probe.get("method") == "gripper_modbus_sync_write_read"
     sensor.close()

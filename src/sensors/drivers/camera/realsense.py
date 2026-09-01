@@ -34,7 +34,13 @@ class RealSenseSensor(Sensor):
     """Single RealSense node with a logical role (left|right|middle)."""
 
     kind = SensorKind.REALSENSE
-    capabilities = SensorCapability.PROBE | SensorCapability.SAMPLE | SensorCapability.PREVIEW | SensorCapability.STREAM
+    capabilities = (
+        SensorCapability.PROBE
+        | SensorCapability.SAMPLE
+        | SensorCapability.PREVIEW
+        | SensorCapability.STREAM
+        | SensorCapability.RATE_PROBE
+    )
 
     def __init__(self, sensor_id: str, config: Mapping[str, Any], ctx: SensorContext | None = None):
         super().__init__(sensor_id, config, ctx)
@@ -56,22 +62,16 @@ class RealSenseSensor(Sensor):
         self._fps_requested = self.fps
 
     def _match_role(self, serial: str) -> str:
+        """Optional role hint from MegaCollect tables (display only; never used to pick a device)."""
         for role, serials in self.role_serials.items():
             if serial and serial in serials:
                 return role
         return "middle"
 
-    def _resolve_serial(self, devices: list[dict[str, str]]) -> str | None:
-        if self.serial:
-            return self.serial
-        mapped = [d["serial"] for d in devices if d["inferred_role"] == self.role]
-        if mapped:
-            return mapped[0]
-        if self.role == "middle" and devices:
-            # Unmapped devices are treated as middle
-            unmapped = [d["serial"] for d in devices if d["inferred_role"] == "middle"]
-            return unmapped[0] if unmapped else None
-        return None
+    def _resolve_serial(self, devices: list[dict[str, str]] | None = None) -> str | None:
+        """Device selection is serial-only. Empty serial → no device (no role/USB fallback)."""
+        _ = devices
+        return self.serial or None
 
     def probe(self) -> HealthReport:
         checks: list[CheckResult] = []
@@ -105,23 +105,30 @@ class RealSenseSensor(Sensor):
         metrics["device_count"] = len(devices)
         metrics["resolved_serial"] = self._resolve_serial(devices)
 
-        if self.serial:
-            found = any(d["serial"] == self.serial for d in devices)
-            checks.append(CheckResult("serial_present", found or not rs_ok, self.serial, critical=False))
-            if found:
-                inferred = self._match_role(self.serial)
-                checks.append(
-                    CheckResult("role_match", inferred == self.role, f"cfg={self.role} inferred={inferred}")
-                )
-        else:
-            mapped = [d for d in devices if d["inferred_role"] == self.role]
+        if not self.serial:
             checks.append(
                 CheckResult(
-                    "role_device",
-                    bool(mapped) or not rs_ok,
-                    f"{len(mapped)} device(s) for role={self.role}",
+                    "serial_required",
+                    False,
+                    "set params.serial to the camera serial number (no role/USB auto-pick)",
+                    critical=True,
                 )
             )
+        elif rs_ok:
+            found = any(d["serial"] == self.serial for d in devices)
+            checks.append(CheckResult("serial_present", found, self.serial, critical=True))
+            if found:
+                inferred = self._match_role(self.serial)
+                known = any(self.serial in (serials or []) for serials in self.role_serials.values())
+                if known:
+                    checks.append(
+                        CheckResult(
+                            "role_match",
+                            inferred == self.role,
+                            f"cfg={self.role} inferred={inferred}",
+                            critical=False,
+                        )
+                    )
 
         if rs_ok and not devices:
             status = HealthStatus.OFFLINE
@@ -134,10 +141,11 @@ class RealSenseSensor(Sensor):
             sensor_id=self.id,
             kind=self.kind.value,
             status=status,
-            message=f"RealSense role={self.role}",
+            message=f"RealSense serial={self.serial or 'unset'} role={self.role}",
             checks=checks,
             metrics=metrics,
             hints=[
+                "Match cameras by serial only — fill params.serial (or UI 相机序列号)",
                 "Collect mosaic: hconcat(L,R) over hconcat(M, black) → 1440×2560",
                 "Exposure/gain defaults match MegaCollect Realsense(1280,720,15)",
             ],
@@ -194,16 +202,23 @@ class RealSenseSensor(Sensor):
         except ImportError as e:
             raise RuntimeError("pyrealsense2 required for realsense open()") from e
 
-        ctx = rs.context()
-        devices: list[dict[str, str]] = []
-        for dev in ctx.query_devices():
-            sn = dev.get_info(rs.camera_info.serial_number)
-            name = dev.get_info(rs.camera_info.name)
-            devices.append({"serial": sn, "name": name, "inferred_role": self._match_role(sn)})
-
-        serial = self._resolve_serial(devices)
+        serial = self._resolve_serial()
         if not serial:
-            raise RuntimeError(f"{self.id}: no RealSense device for role={self.role} serial={self.serial!r}")
+            raise RuntimeError(
+                f"{self.id}: RealSense serial is required "
+                f"(set params.serial / 相机序列号; role={self.role!r} is not used to pick a device)"
+            )
+
+        ctx = rs.context()
+        present = {
+            dev.get_info(rs.camera_info.serial_number)
+            for dev in ctx.query_devices()
+        }
+        if serial not in present:
+            raise RuntimeError(
+                f"{self.id}: RealSense serial={serial!r} not found "
+                f"(connected={sorted(present) or 'none'})"
+            )
 
         self._refresh_stream_config()
         pipeline, profile = self._start_pipeline(rs, serial)
@@ -335,3 +350,58 @@ class RealSenseSensor(Sensor):
             "depth_shape": tuple(depth.shape) if depth is not None else None,
             "ts": ts,
         }
+
+    def _probe_grab_frame_once(self) -> None:
+        """One pipeline wait + color frame (no align / numpy sample dict)."""
+        if self.ctx.dry_run or self._pipeline is None:
+            return
+        frames = self._pipeline.wait_for_frames(min(self.timeout_ms, 1500))
+        if not frames.get_color_frame():
+            raise RuntimeError(f"{self.id}: no color frame")
+
+    def probe_max_read_hz(self, duration_s: float = 3.0) -> dict[str, Any]:
+        """Tight wait_for_frames loop — not sample read()."""
+        from sensors.core.rate_probe import cap_from_measured, clamp_duration, rate_probe_fail, rate_probe_ok
+
+        if not self._opened:
+            raise RuntimeError(f"{self.id}: call open() before probe_max_read_hz()")
+        duration_s = clamp_duration(duration_s)
+        times: list[float] = []
+        errors = 0
+        last_error: str | None = None
+        t0 = time.perf_counter()
+        deadline = t0 + duration_s
+        dry = bool(self.ctx.dry_run or self._pipeline is None)
+        while time.perf_counter() < deadline:
+            try:
+                self._probe_grab_frame_once()
+                times.append(time.perf_counter())
+            except Exception as e:  # noqa: BLE001
+                errors += 1
+                last_error = str(e)
+                if errors >= 8 and len(times) < 3:
+                    break
+        if len(times) < 3:
+            return rate_probe_fail(
+                error=last_error or "realsense read probe produced too few frames",
+                method="realsense_wait_for_frames",
+                samples=len(times),
+                errors=errors,
+                duration_s=time.perf_counter() - t0,
+                dry_run=dry,
+                last_error=last_error,
+            )
+        result = rate_probe_ok(
+            times,
+            method="realsense_wait_for_frames",
+            errors=errors,
+            t0=t0,
+            dry_run=dry,
+            last_error=last_error,
+        )
+        if result.get("ok") and self.fps > 0:
+            hw_cap = float(self.fps)
+            result["hardware_fps_cap"] = hw_cap
+            cap = min(float(result["read_cap_hz"]), cap_from_measured(hw_cap, margin=1.0))
+            result["read_cap_hz"] = round(cap, 3)
+        return result

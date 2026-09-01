@@ -55,7 +55,12 @@ class PaxiniTactileSensor(Sensor):
     """Paxini tactile groups: rest_force + 60-point component field."""
 
     kind = SensorKind.TACTILE
-    capabilities = SensorCapability.PROBE | SensorCapability.SAMPLE | SensorCapability.PREVIEW
+    capabilities = (
+        SensorCapability.PROBE
+        | SensorCapability.SAMPLE
+        | SensorCapability.PREVIEW
+        | SensorCapability.RATE_PROBE
+    )
 
     def __init__(self, sensor_id: str, config: Mapping[str, Any], ctx: SensorContext | None = None):
         super().__init__(sensor_id, config, ctx)
@@ -281,3 +286,52 @@ class PaxiniTactileSensor(Sensor):
             "paxini_channel": self.paxini_channel,
             "port": self.port or None,
         }
+
+    def _probe_read_once(self) -> None:
+        """One Paxini DLL fetch or synthetic group (no sample dict)."""
+        if self.ctx.dry_run or self._lib is None:
+            self._tick += 1
+            self._synthetic_group(0)
+            return
+        self._read_live_groups()
+
+    def probe_max_read_hz(self, duration_s: float = 10.0) -> dict[str, Any]:
+        """Tight get_paxini_data loop — not sample read()."""
+        from sensors.core.rate_probe import clamp_duration, rate_probe_fail, rate_probe_ok
+
+        if not self._opened:
+            raise RuntimeError(f"{self.id}: call open() before probe_max_read_hz()")
+        duration_s = clamp_duration(duration_s)
+        times: list[float] = []
+        errors = 0
+        last_error: str | None = None
+        t0 = time.perf_counter()
+        deadline = t0 + duration_s
+        dry = bool(self.ctx.dry_run or self._lib is None)
+        while time.perf_counter() < deadline:
+            try:
+                self._probe_read_once()
+                times.append(time.perf_counter())
+            except Exception as e:  # noqa: BLE001
+                errors += 1
+                last_error = str(e)
+                if errors >= 8 and len(times) < 3:
+                    break
+        if len(times) < 3:
+            return rate_probe_fail(
+                error=last_error or "tactile read probe produced too few samples",
+                method="paxini_get_data_loop",
+                samples=len(times),
+                errors=errors,
+                duration_s=time.perf_counter() - t0,
+                dry_run=dry,
+                last_error=last_error,
+            )
+        return rate_probe_ok(
+            times,
+            method="paxini_get_data_loop",
+            errors=errors,
+            t0=t0,
+            dry_run=dry,
+            last_error=last_error,
+        )
