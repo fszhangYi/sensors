@@ -348,3 +348,104 @@ class ForceTorqueSensor(Sensor):
                     return parse_wrench_frame(frame)
                 time.sleep(0.002)
         raise TimeoutError(f"no F/T frame from {self.port} (baud={self.baudrate}, timeout={self.timeout_ms}ms)")
+
+    def probe_max_read_hz(self, duration_s: float = 5.0) -> dict[str, Any]:
+        """Count wrench frames from the continuous serial stream (not paced UI ticks).
+
+        Live: drain RX and pop every valid 28-byte frame for ``duration_s``.
+        dry-run: synthetic tight loop so the probe still returns real timings.
+        """
+        duration_s = max(0.5, float(duration_s))
+        if self.ctx.dry_run:
+            times: list[float] = []
+            t0 = time.perf_counter()
+            deadline = t0 + duration_s
+            while time.perf_counter() < deadline:
+                self.read()
+                times.append(time.perf_counter())
+            span = times[-1] - times[0] if len(times) >= 2 else 0.0
+            measured = ((len(times) - 1) / span) if span > 0 else None
+            if measured is None:
+                return {
+                    "ok": False,
+                    "error": "dry-run read probe produced too few samples",
+                    "samples": len(times),
+                    "errors": 0,
+                    "duration_s": round(time.perf_counter() - t0, 3),
+                    "method": "ft_dry_run_loop",
+                    "dry_run": True,
+                }
+            cap = max(0.2, math.floor(measured * 0.95 * 10) / 10)
+            return {
+                "ok": True,
+                "samples": len(times),
+                "errors": 0,
+                "duration_s": round(time.perf_counter() - t0, 3),
+                "measured_hz": round(measured, 3),
+                "read_cap_hz": cap,
+                "method": "ft_dry_run_loop",
+                "dry_run": True,
+            }
+
+        if self._ser is None:
+            return {"ok": False, "error": "serial port not open", "method": "ft_stream_frames"}
+
+        # Warm the stream briefly so START has produced frames before we count.
+        warm_deadline = time.perf_counter() + 0.25
+        while time.perf_counter() < warm_deadline:
+            self._drain_serial()
+            if self._pop_frame_from_buffer(latest=True) is not None:
+                break
+            time.sleep(0.002)
+
+        times: list[float] = []
+        errors = 0
+        t0 = time.perf_counter()
+        deadline = t0 + duration_s
+        while time.perf_counter() < deadline:
+            try:
+                self._drain_serial()
+                got = False
+                while True:
+                    frame = self._pop_frame_from_buffer(latest=False)
+                    if frame is None:
+                        break
+                    parse_wrench_frame(frame)
+                    times.append(time.perf_counter())
+                    got = True
+                if not got:
+                    time.sleep(0.0005)
+            except Exception:  # noqa: BLE001
+                errors += 1
+                if errors >= 8 and len(times) < 3:
+                    break
+        elapsed = max(1e-9, time.perf_counter() - t0)
+        if len(times) < 3:
+            return {
+                "ok": False,
+                "error": f"too few F/T frames ({len(times)}); check port/baud/START stream",
+                "samples": len(times),
+                "errors": errors,
+                "duration_s": round(elapsed, 3),
+                "method": "ft_stream_frames",
+                "dry_run": False,
+            }
+        span = times[-1] - times[0]
+        measured = (len(times) - 1) / span if span > 0 else len(times) / elapsed
+        cap = max(0.2, math.floor(measured * 0.95 * 10) / 10)
+        dts = sorted((times[i] - times[i - 1]) * 1000.0 for i in range(1, len(times)))
+        mid = dts[len(dts) // 2]
+        p95 = dts[min(len(dts) - 1, int(len(dts) * 0.95))]
+        return {
+            "ok": True,
+            "samples": len(times),
+            "errors": errors,
+            "duration_s": round(elapsed, 3),
+            "measured_hz": round(float(measured), 3),
+            "read_cap_hz": cap,
+            "method": "ft_stream_frames",
+            "dry_run": False,
+            "dt_ms_p50": round(mid, 3),
+            "dt_ms_p95": round(p95, 3),
+            "dt_ms_mean": round(sum(dts) / len(dts), 3),
+        }

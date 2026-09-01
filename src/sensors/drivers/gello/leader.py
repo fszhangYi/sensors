@@ -170,3 +170,52 @@ class GelloLeaderSensor(Sensor):
             "port": self.port,
             "ts": ts,
         }
+
+    def probe_max_read_hz(self, duration_s: float = 5.0) -> dict[str, Any]:
+        """Tight Dynamixel GroupSyncRead loop — measures real bus round-trip rate."""
+        import math
+
+        duration_s = max(0.5, float(duration_s))
+        times: list[float] = []
+        errors = 0
+        last_error: str | None = None
+        t0 = time.perf_counter()
+        deadline = t0 + duration_s
+        while time.perf_counter() < deadline:
+            try:
+                self.read()
+                times.append(time.perf_counter())
+            except Exception as e:  # noqa: BLE001
+                errors += 1
+                last_error = str(e)
+                if errors >= 8 and len(times) < 3:
+                    break
+        elapsed = max(1e-9, time.perf_counter() - t0)
+        if len(times) < 3:
+            return {
+                "ok": False,
+                "error": last_error or "gello read probe produced too few samples",
+                "samples": len(times),
+                "errors": errors,
+                "duration_s": round(elapsed, 3),
+                "method": "gello_sync_read_loop",
+                "dry_run": bool(self.ctx.dry_run or self._group_sync_read is None),
+            }
+        span = times[-1] - times[0]
+        measured = (len(times) - 1) / span if span > 0 else len(times) / elapsed
+        cap = max(0.2, math.floor(measured * 0.95 * 10) / 10)
+        dts = sorted((times[i] - times[i - 1]) * 1000.0 for i in range(1, len(times)))
+        return {
+            "ok": True,
+            "samples": len(times),
+            "errors": errors,
+            "duration_s": round(elapsed, 3),
+            "measured_hz": round(float(measured), 3),
+            "read_cap_hz": cap,
+            "method": "gello_sync_read_loop",
+            "dry_run": bool(self.ctx.dry_run or self._group_sync_read is None),
+            "dt_ms_p50": round(dts[len(dts) // 2], 3),
+            "dt_ms_p95": round(dts[min(len(dts) - 1, int(len(dts) * 0.95))], 3),
+            "dt_ms_mean": round(sum(dts) / len(dts), 3),
+            "last_error": last_error,
+        }
