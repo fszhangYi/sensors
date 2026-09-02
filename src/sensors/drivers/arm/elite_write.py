@@ -426,8 +426,13 @@ class EliteArmWriteSensor(Sensor):
             # Absolute joints
             if "joints_rad" in command and command.get("joints_rad") is not None:
                 target_raw = list(command["joints_rad"])
-                ref = None
-                if coerce_bool(command.get("relative_to_last"), False):
+                ref = command.get("reference_joints_rad")
+                if ref is not None:
+                    try:
+                        ref = _finite_list(list(ref), n=self.num_joints)
+                    except ValueError as e:
+                        return {"ok": False, "error": f"reference_joints_rad: {e}", "armed": True}
+                elif coerce_bool(command.get("relative_to_last"), False):
                     ref = self._last_cmd_rad
                 else:
                     try:
