@@ -11,7 +11,6 @@ from __future__ import annotations
 from typing import List, Literal, Sequence, Tuple, Union
 
 import numpy as np
-from scipy.spatial.transform import Rotation
 
 from .constants import (
     TEACH_INSTALL_ROT_XB_Q1_DEG,
@@ -74,6 +73,8 @@ def teach_flange_T_m_from_pendant(
     """
     p = np.asarray(position_mm, dtype=float).reshape(3)
     r = np.asarray(rxyz_deg, dtype=float).reshape(3)
+    from scipy.spatial.transform import Rotation  # optional; not needed for FK
+
     R = Rotation.from_euler(euler_seq, r, degrees=degrees).as_matrix()
     T = np.eye(4, dtype=float)
     T[:3, :3] = R

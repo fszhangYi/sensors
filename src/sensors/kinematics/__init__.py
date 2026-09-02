@@ -4,14 +4,19 @@ from __future__ import annotations
 
 Provides FK/IK for sensors-dcs hik_dataset cartesian fields and arm tooling.
 Default DH table matches the teach/calibration constants used by demo_test.
+
+FK (``make_hik_fk_fn`` / ``fk_flange*``) needs only NumPy.
+IK (``ik_flange``) needs SciPy — imported lazily so export/FK works without it.
 """
 
-from typing import Sequence
+from typing import TYPE_CHECKING, Any, Sequence
 
 import numpy as np
 
 from .fk import fk_flange, fk_position_mm, fk_tool, joint_q_rad
-from .ik import ik_flange
+
+if TYPE_CHECKING:
+    from .ik import ik_flange as ik_flange
 
 __all__ = [
     "fk_flange",
@@ -22,6 +27,14 @@ __all__ = [
     "ik_flange",
     "joint_q_rad",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    if name == "ik_flange":
+        from .ik import ik_flange as _ik_flange
+
+        return _ik_flange
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def fk_flange_from_joints_rad(
