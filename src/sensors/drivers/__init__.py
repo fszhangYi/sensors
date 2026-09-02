@@ -4,6 +4,7 @@ from __future__ import annotations
 
 
 def load_all_drivers() -> None:
+    from sensors.drivers.arm import elite_read as _arm_read  # noqa: F401
     from sensors.drivers.arm import follower as _arm  # noqa: F401
     from sensors.drivers.bus import serial_bus as _bus  # noqa: F401
     from sensors.drivers.camera import realsense as _rs  # noqa: F401

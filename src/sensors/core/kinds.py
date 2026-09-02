@@ -8,6 +8,7 @@ class SensorKind(str, Enum):
 
     BUS = "bus"
     ARM = "arm"
+    ARM_READ = "arm_read"  # Elite EC monitor only — never command
     GELLO = "gello"
     GRIPPER = "gripper"
     REALSENSE = "realsense"

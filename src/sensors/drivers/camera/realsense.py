@@ -29,6 +29,33 @@ def _fps_fallback_order(requested: int) -> list[int]:
     return sorted(known, key=lambda f: (abs(f - req), f))
 
 
+
+def _intrinsics_list(intr: Any) -> list[float]:
+    return [float(intr.fx), float(intr.fy), float(intr.ppx), float(intr.ppy)]
+
+
+def _intrinsics_matrix(intr: Any) -> list[list[float]]:
+    return [
+        [float(intr.fx), 0.0, float(intr.ppx)],
+        [0.0, float(intr.fy), float(intr.ppy)],
+        [0.0, 0.0, 1.0],
+    ]
+
+
+def _extrinsics_matrix(extr: Any) -> list[list[float]]:
+    """4x4 from RealSense extrinsics (rotation row-major 9 + translation 3)."""
+    R = list(extr.rotation)
+    t = list(extr.translation)
+    return [
+        [float(R[0]), float(R[1]), float(R[2]), float(t[0])],
+        [float(R[3]), float(R[4]), float(R[5]), float(t[1])],
+        [float(R[6]), float(R[7]), float(R[8]), float(t[2])],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+
+
+
+
 @register_sensor(SensorKind.REALSENSE)
 class RealSenseSensor(Sensor):
     """Single RealSense node with a logical role (left|right|middle)."""
@@ -60,6 +87,7 @@ class RealSenseSensor(Sensor):
         self._align = None
         self._active_serial: str | None = None
         self._fps_requested = self.fps
+        self.camera_infos: dict[str, Any] | None = None
 
     def _match_role(self, serial: str) -> str:
         """Optional role hint from MegaCollect tables (display only; never used to pick a device)."""
@@ -192,9 +220,80 @@ class RealSenseSensor(Sensor):
         except Exception:  # noqa: BLE001
             return int(self.fps)
 
+
+    def get_camera_infos(self) -> dict[str, Any] | None:
+        """Intrinsics captured at pipeline start (None until open())."""
+        return None if self.camera_infos is None else dict(self.camera_infos)
+
+    def _capture_camera_infos(self, rs: Any, profile: Any, *, serial: str) -> dict[str, Any]:
+        """Snapshot color/depth intrinsics (+ depth→color extrinsics) like hik_gello."""
+        info: dict[str, Any] = {
+            "serial": serial,
+            "role": self.role,
+            "width": int(self.width),
+            "height": int(self.height),
+            "fps": int(self.fps),
+            "enable_depth": bool(self.enable_depth),
+            "align_to_color": bool(self.align_to_color),
+        }
+        try:
+            device = profile.get_device()
+            info["name"] = device.get_info(rs.camera_info.name)
+        except Exception:  # noqa: BLE001
+            info["name"] = None
+
+        try:
+            color_stream = profile.get_stream(rs.stream.color).as_video_stream_profile()
+            color_intr = color_stream.get_intrinsics()
+            info["color_intrinsics"] = _intrinsics_list(color_intr)
+            info["intrinsic_matrix"] = _intrinsics_matrix(color_intr)
+            info["color_distortion_coeffs"] = [float(c) for c in color_intr.coeffs]
+            info["color_distortion_model"] = str(color_intr.model)
+        except Exception as e:  # noqa: BLE001
+            info["color_intrinsics_error"] = str(e)
+
+        if self.enable_depth:
+            try:
+                depth_stream = profile.get_stream(rs.stream.depth).as_video_stream_profile()
+                depth_intr = depth_stream.get_intrinsics()
+                info["depth_intrinsics"] = _intrinsics_list(depth_intr)
+                info["depth_intrinsic_matrix"] = _intrinsics_matrix(depth_intr)
+                info["depth_distortion_coeffs"] = [float(c) for c in depth_intr.coeffs]
+                info["depth_distortion_model"] = str(depth_intr.model)
+                try:
+                    color_stream = profile.get_stream(rs.stream.color).as_video_stream_profile()
+                    extr = depth_stream.get_extrinsics_to(color_stream)
+                    info["depth_to_color"] = _extrinsics_matrix(extr)
+                except Exception as e:  # noqa: BLE001
+                    info["depth_to_color_error"] = str(e)
+            except Exception as e:  # noqa: BLE001
+                info["depth_intrinsics_error"] = str(e)
+        return info
+
+    def _dry_run_camera_infos(self) -> dict[str, Any]:
+        """Placeholder K for dry-run (manifest still records stream geometry)."""
+        w, h = float(self.width), float(self.height)
+        fx = fy = 0.9 * max(w, h)
+        cx, cy = w / 2.0, h / 2.0
+        return {
+            "serial": self.serial or None,
+            "role": self.role,
+            "width": int(self.width),
+            "height": int(self.height),
+            "fps": int(self.fps),
+            "enable_depth": bool(self.enable_depth),
+            "align_to_color": bool(self.align_to_color),
+            "name": "dry-run",
+            "dry_run": True,
+            "color_intrinsics": [fx, fy, cx, cy],
+            "intrinsic_matrix": [[fx, 0.0, cx], [0.0, fy, cy], [0.0, 0.0, 1.0]],
+            "note": "synthetic intrinsics for dry_run; replace with real open() capture on hardware",
+        }
+
     def open(self) -> None:
         if self.ctx.dry_run:
             self._refresh_stream_config()
+            self.camera_infos = self._dry_run_camera_infos()
             self._opened = True
             return
         try:
@@ -239,6 +338,16 @@ class RealSenseSensor(Sensor):
         self._pipeline = pipeline
         self._align = rs.align(rs.stream.color) if self.enable_depth and self.align_to_color else None
         self._active_serial = serial
+        try:
+            self.camera_infos = self._capture_camera_infos(rs, profile, serial=serial)
+        except Exception as e:  # noqa: BLE001
+            self.camera_infos = {
+                "serial": serial,
+                "role": self.role,
+                "width": int(self.width),
+                "height": int(self.height),
+                "error": str(e),
+            }
         self._opened = True
         for _ in range(5):
             try:

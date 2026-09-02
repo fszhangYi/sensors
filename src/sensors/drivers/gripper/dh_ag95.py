@@ -275,12 +275,14 @@ class DhAg95Sensor(Sensor):
         t0 = time.perf_counter()
         if self.ctx.dry_run:
             norm = 0.25 * (1.0 + __import__("math").sin(time.time()))
+            raw = int(norm_to_raw(norm))
             return {
                 "ts": time.time(),
                 "tick": self._tick,
                 "dry_run": True,
                 "position_norm": norm,
-                "position_raw": int(norm_to_raw(norm)),
+                "position_raw": raw,
+                "raw_value": raw,  # Modbus position before (1000-raw)*0.000637
                 "init_state": 1,
                 "read_ms": (time.perf_counter() - t0) * 1000.0,
             }
@@ -299,8 +301,10 @@ class DhAg95Sensor(Sensor):
         return {
             "ts": time.time(),
             "tick": self._tick,
-            "position_raw": raw,
-            "position_norm": norm,
+            # raw_value: DH GetCurrentPosition (pre-conversion), same as hik_gello g_state
+            "raw_value": raw,
+            "position_raw": raw,  # alias kept for existing consumers
+            "position_norm": norm,  # (1000 - raw) * 0.000637 (+ optional scale/offset)
             "init_state": init_state,
             "fault": fault,
             "position_raw_min": self.position_raw_min,

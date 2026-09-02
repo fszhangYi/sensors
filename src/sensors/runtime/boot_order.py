@@ -3,7 +3,8 @@
 # Lifecycle order on a real cell (start → stop reverse):
 BOOT_ORDER = [
     "bus",        # socat /tmp/ttyUR ↔ robot:54321 + by-id USB
-    "arm",        # ZMQ server :6001 (ur|elite)
+    "arm",        # ZMQ server :6001 (ur|elite) — control path
+    "arm_read",   # Elite EC monitor-only (DCS read, never command)
     "gello",      # Dynamixel leader client
     "gripper",    # DH AG95 (often opened inside arm server)
     "realsense",  # left / right / middle
