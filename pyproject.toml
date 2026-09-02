@@ -20,8 +20,9 @@ serial = ["pyserial>=3.5"]
 zmq = ["pyzmq>=25.0"]
 realsense = ["pyrealsense2>=2.54"]
 dynamixel = ["dynamixel-sdk>=3.7"]
+kinematics = ["scipy>=1.10"]
 dev = ["pytest>=7.0", "ruff>=0.4"]
-all = ["hik-sensors[serial,zmq,realsense,dynamixel,dev]"]
+all = ["hik-sensors[serial,zmq,realsense,dynamixel,kinematics,dev]"]
 
 [project.scripts]
 sensors = "sensors.cli.main:main"
