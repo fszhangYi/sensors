@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+import threading
 import time
 from pathlib import Path
 from typing import Any, Mapping
@@ -82,6 +83,8 @@ class DhAg95Sensor(Sensor):
         self.default_force = int(_scalar(config.get("default_force") or config.get("force"), DEFAULT_FORCE))
         self.default_speed = int(_scalar(config.get("default_speed") or config.get("speed"), DEFAULT_SPEED))
         self.init_on_open = coerce_bool(config.get("init_on_open"), False)
+        # When true, read() returns last successful external command instead of REG_POSITION_FB.
+        self.fake = coerce_bool(config.get("fake"), False)
         self.read_scale = float(_scalar(config.get("read_scale"), 1.0))
         self.read_offset = float(_scalar(config.get("read_offset"), 0.0))
         self.position_raw_min = config.get("position_raw_min")
@@ -89,7 +92,43 @@ class DhAg95Sensor(Sensor):
         self._ser = None
         self._initialized = False
         self._tick = 0
+        self._cmd_lock = threading.Lock()
+        self._last_cmd_valid = False
+        self._last_cmd_norm: float | None = None
+        self._last_cmd_raw: int | None = None
+        self._last_cmd_t_wall: float | None = None
 
+    def _remember_command(self, *, position_norm: float | None, position_raw: int | None) -> None:
+        """Cache last successful absolute position command for fake reads."""
+        raw: int | None
+        norm: float | None
+        if position_raw is not None:
+            raw = int(position_raw)
+            if position_norm is not None:
+                norm = float(position_norm)
+            else:
+                # Prefer calib mapping when present; else hik default raw→norm.
+                mapped = self._position_norm_from_raw(raw)
+                norm = float(mapped) if mapped is not None else raw_to_norm(raw)
+        elif position_norm is not None:
+            norm = float(position_norm)
+            raw = norm_to_raw(norm)
+        else:
+            return
+        with self._cmd_lock:
+            self._last_cmd_valid = True
+            self._last_cmd_norm = norm
+            self._last_cmd_raw = raw
+            self._last_cmd_t_wall = time.time()
+
+    def _cached_command_snapshot(self) -> dict[str, Any]:
+        with self._cmd_lock:
+            return {
+                "valid": self._last_cmd_valid,
+                "position_norm": self._last_cmd_norm,
+                "position_raw": self._last_cmd_raw,
+                "t_wall": self._last_cmd_t_wall,
+            }
     def probe(self) -> HealthReport:
         checks: list[CheckResult] = []
         if self.ctx.dry_run:
@@ -273,6 +312,54 @@ class DhAg95Sensor(Sensor):
             raise RuntimeError(f"{self.id}: call open() before read()")
         self._tick += 1
         t0 = time.perf_counter()
+
+        # Sparse init/fault poll (shared Modbus bus) — also used in fake mode.
+        if not self.ctx.dry_run:
+            if self._tick == 1 or self._tick % 50 == 0 or not hasattr(self, "_cached_init"):
+                self._cached_init = self._read_register(REG_INIT_STATE)
+                self._cached_fault = self._read_register(REG_FAULT)
+            init_state = getattr(self, "_cached_init", None)
+            fault = getattr(self, "_cached_fault", None)
+        else:
+            init_state = 1
+            fault = None
+
+        if self.fake:
+            snap = self._cached_command_snapshot()
+            if not snap["valid"]:
+                return {
+                    "ts": time.time(),
+                    "tick": self._tick,
+                    "dry_run": bool(self.ctx.dry_run),
+                    "fake": True,
+                    "position_source": "last_command",
+                    "position_norm": None,
+                    "position_raw": None,
+                    "raw_value": None,
+                    "init_state": init_state,
+                    "fault": fault,
+                    "position_raw_min": self.position_raw_min,
+                    "position_raw_max": self.position_raw_max,
+                    "error": "fake read: no commanded position cached yet",
+                    "read_ms": (time.perf_counter() - t0) * 1000.0,
+                }
+            return {
+                "ts": time.time(),
+                "tick": self._tick,
+                "dry_run": bool(self.ctx.dry_run),
+                "fake": True,
+                "position_source": "last_command",
+                "position_norm": snap["position_norm"],
+                "position_raw": snap["position_raw"],
+                "raw_value": snap["position_raw"],
+                "command_t_wall": snap["t_wall"],
+                "init_state": init_state,
+                "fault": fault,
+                "position_raw_min": self.position_raw_min,
+                "position_raw_max": self.position_raw_max,
+                "read_ms": (time.perf_counter() - t0) * 1000.0,
+            }
+
         if self.ctx.dry_run:
             norm = 0.25 * (1.0 + __import__("math").sin(time.time()))
             raw = int(norm_to_raw(norm))
@@ -280,20 +367,17 @@ class DhAg95Sensor(Sensor):
                 "ts": time.time(),
                 "tick": self._tick,
                 "dry_run": True,
+                "fake": False,
+                "position_source": "register",
                 "position_norm": norm,
                 "position_raw": raw,
                 "raw_value": raw,  # Modbus position before (1000-raw)*0.000637
                 "init_state": 1,
                 "read_ms": (time.perf_counter() - t0) * 1000.0,
             }
-        # Fast path: position every tick; init/fault polled sparsely (shared Modbus bus).
+        # Fast path: position every tick; init/fault polled sparsely above.
         # Rate probes call read() in a tight loop — keep extras rare so measured Hz
         # reflects position-register throughput (hik_gello GetCurrentPosition style).
-        if self._tick == 1 or self._tick % 50 == 0 or not hasattr(self, "_cached_init"):
-            self._cached_init = self._read_register(REG_INIT_STATE)
-            self._cached_fault = self._read_register(REG_FAULT)
-        init_state = getattr(self, "_cached_init", None)
-        fault = getattr(self, "_cached_fault", None)
         raw = self._read_register(REG_POSITION_FB)
         norm = self._position_norm_from_raw(raw)
         if norm is not None:
@@ -301,6 +385,8 @@ class DhAg95Sensor(Sensor):
         return {
             "ts": time.time(),
             "tick": self._tick,
+            "fake": False,
+            "position_source": "register",
             # raw_value: DH GetCurrentPosition (pre-conversion), same as hik_gello g_state
             "raw_value": raw,
             "position_raw": raw,  # alias kept for existing consumers
@@ -327,6 +413,7 @@ class DhAg95Sensor(Sensor):
                 return {"ok": False, "error": "gripper not initialized; click Initialize first"}
             t0 = time.perf_counter()
             if self.ctx.dry_run:
+                self._remember_command(position_norm=None, position_raw=raw)
                 return {
                     "ok": True,
                     "position_raw": raw,
@@ -334,6 +421,8 @@ class DhAg95Sensor(Sensor):
                     "dry_run": True,
                 }
             ok = self._write_register(REG_POSITION, raw)
+            if ok:
+                self._remember_command(position_norm=None, position_raw=raw)
             return {
                 "ok": ok,
                 "position_raw": raw,
@@ -348,6 +437,7 @@ class DhAg95Sensor(Sensor):
         t0 = time.perf_counter()
         raw = norm_to_raw(float(pos))
         if self.ctx.dry_run:
+            self._remember_command(position_norm=float(pos), position_raw=raw)
             return {
                 "ok": True,
                 "position_norm": float(pos),
@@ -361,6 +451,8 @@ class DhAg95Sensor(Sensor):
         wait_ms = int(command.get("wait_ms", 0) or 0)
         if ok and wait_ms > 0 and not self.ctx.dry_run:
             time.sleep(wait_ms / 1000.0)
+        if ok:
+            self._remember_command(position_norm=float(pos), position_raw=raw)
         return {
             "ok": ok,
             "position_norm": float(pos),

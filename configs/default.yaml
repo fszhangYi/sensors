@@ -21,6 +21,8 @@ defaults:
     default_force: 100
     default_speed: 100
     init_on_open: false
+    # false: read REG_POSITION_FB; true: read last successful write target
+    fake: false
   ft:
     baudrate: 460800
     timeout_ms: 500
@@ -83,6 +85,8 @@ devices:
       read_offset: [0.0]
       write_scale: [1.0]
       write_offset: [0.0]
+      # Unreliable feedback: set true to return last commanded position on read()
+      fake: false
 
   - id: rs-left
     kind: realsense

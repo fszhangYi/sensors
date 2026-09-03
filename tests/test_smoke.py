@@ -131,6 +131,49 @@ def test_gripper_initialize_dry_run():
     assert sensor.initialized is False
 
 
+def test_gripper_fake_read_uses_last_command():
+    sensor = DhAg95Sensor("g", {"fake": True}, SensorContext(dry_run=True))
+    sensor.open()
+    assert sensor.fake is True
+    empty = sensor.read()
+    assert empty["fake"] is True
+    assert empty["position_source"] == "last_command"
+    assert empty["position_norm"] is None
+    assert "no commanded position" in str(empty.get("error", ""))
+
+    assert sensor.initialize()["ok"] is True
+    target = 0.42
+    wr = sensor.write({"position_norm": target})
+    assert wr["ok"] is True
+    sample = sensor.read()
+    assert sample["fake"] is True
+    assert sample["position_source"] == "last_command"
+    assert abs(float(sample["position_norm"]) - target) < 1e-9
+    assert sample["position_raw"] == sample["raw_value"] == wr["position_raw"]
+    assert sample.get("error") is None
+
+    # fake=false still gets register/synth path and does not require cache
+    live = DhAg95Sensor("g2", {"fake": False}, SensorContext(dry_run=True))
+    live.open()
+    s2 = live.read()
+    assert s2.get("fake") is False
+    assert s2["position_source"] == "register"
+    assert s2["position_norm"] is not None
+    live.close()
+    sensor.close()
+
+
+def test_gripper_caches_command_even_when_fake_false():
+    sensor = DhAg95Sensor("g", {"fake": False}, SensorContext(dry_run=True))
+    sensor.open()
+    sensor.initialize()
+    sensor.write({"position_norm": 0.2})
+    sensor.fake = True  # ctor-only in prod; flip here to prove cache was filled
+    sample = sensor.read()
+    assert abs(float(sample["position_norm"]) - 0.2) < 1e-9
+    sensor.close()
+
+
 def test_base_initialize_default():
     sensor = SerialBusSensor("bus", {}, SensorContext(dry_run=True))
     sensor.open()
