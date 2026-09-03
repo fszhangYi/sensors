@@ -25,7 +25,7 @@ src/sensors/
 | 端口映射 | `bus` | `SerialBusSensor` | socat PTY + by-id 状态 |
 | 服务端 | `arm` | `FollowerArmSensor` | ZMQ REQ pickle `get_joint_state` |
 | 客户端 Gello | `gello` | `GelloLeaderSensor` | Dynamixel GroupSyncRead |
-| DH 夹爪 | `gripper` | `DhAg95Sensor` | Modbus RTU 位置反馈 |
+| DH 夹爪 | `gripper` | `DhAg95Sensor` | Modbus RTU 位置反馈；`params.fake: true` 时读上次下发目标（不可靠反馈） |
 | RealSense L/R/M | `realsense` | `RealSenseSensor` | pipeline color(+depth) |
 | 数据采集 | `pipeline` | `CollectPipelineSensor` | probe（SHM） |
 | （扩展） | `ft` | `ForceTorqueSensor` | HIK 串口 460800，force[3]+torque[3]；dry-run；≠触觉/夹爪力 |
