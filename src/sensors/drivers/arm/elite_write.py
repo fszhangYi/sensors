@@ -23,6 +23,7 @@ from sensors.core.config import coerce_bool
 from sensors.core.health import CheckResult, HealthReport, HealthStatus
 from sensors.core.kinds import SensorKind
 from sensors.core.registry import register_sensor
+from sensors.drivers.arm._elite_monitor import close_ec_monitor, open_ec_with_monitor
 
 _DEFAULT_MAX_DELTA_DEG = 2.0
 
@@ -59,6 +60,9 @@ class EliteArmWriteSensor(Sensor):
         self.robot_tcp_port = int(config.get("robot_tcp_port", 54321))
         self.num_joints = int(config.get("num_joints", 6))
         self.monitor_wait_s = float(config.get("monitor_wait_s", 10.0))
+        self.monitor_retries = int(config.get("monitor_retries", 3))
+        self.monitor_retry_backoff_s = float(config.get("monitor_retry_backoff_s", 1.0))
+        self.post_close_cooldown_s = float(config.get("post_close_cooldown_s", 0.3))
         self.connect_timeout_s = float(config.get("connect_timeout_s", 0.4))
         self.tt_t = float(config.get("tt_t", 2.0))
         self.tt_response_enable = int(config.get("tt_response_enable", 0))
@@ -137,6 +141,7 @@ class EliteArmWriteSensor(Sensor):
                 "open() = monitor only; call arm/initialize before TT_add_joint",
                 "UI: Arm → ± jog with delta slider; Disarm/Estop to release",
                 f"max_delta_deg={math.degrees(self.max_delta_rad):.3g}",
+                "8056 reconnect: monitor_retries / see docs/elite-monitor-reconnect.md",
             ],
         )
 
@@ -149,31 +154,19 @@ class EliteArmWriteSensor(Sensor):
             self._armed = False
             return
         try:
-            from elite import EC
+            robot = open_ec_with_monitor(
+                robot_ip=self.robot_ip,
+                num_joints=self.num_joints,
+                monitor_wait_s=self.monitor_wait_s,
+                monitor_retries=self.monitor_retries,
+                monitor_retry_backoff_s=self.monitor_retry_backoff_s,
+                post_close_cooldown_s=self.post_close_cooldown_s,
+                sensor_id=self.id,
+            )
         except ImportError as e:
             raise RuntimeError(
                 "elite SDK required for arm_write open() when dry_run=false"
             ) from e
-
-        robot = EC(ip=self.robot_ip, auto_connect=True)
-        if not hasattr(robot, "monitor_thread_run"):
-            raise RuntimeError("elite.EC missing monitor_thread_run")
-        robot.monitor_thread_run()
-
-        deadline = time.perf_counter() + max(0.5, self.monitor_wait_s)
-        while time.perf_counter() < deadline:
-            pos = getattr(getattr(robot, "monitor_info", None), "machinePos", None)
-            if pos is not None and len(pos) >= self.num_joints and pos[0] is not None:
-                break
-            time.sleep(0.05)
-        else:
-            try:
-                robot.monitor_thread_stop()
-            except Exception:  # noqa: BLE001
-                pass
-            raise TimeoutError(
-                f"{self.id}: monitor_info.machinePos not ready within {self.monitor_wait_s}s"
-            )
 
         self._robot = robot
         self._opened = True
@@ -192,10 +185,10 @@ class EliteArmWriteSensor(Sensor):
             self._armed = False
             self._initialized = False
             if robot is not None and not self.ctx.dry_run:
-                try:
-                    robot.monitor_thread_stop()
-                except Exception:  # noqa: BLE001
-                    pass
+                close_ec_monitor(
+                    robot,
+                    post_close_cooldown_s=self.post_close_cooldown_s,
+                )
             self._opened = False
 
     def initialize(self, **options: Any) -> dict[str, Any]:
