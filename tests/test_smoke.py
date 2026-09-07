@@ -301,6 +301,50 @@ def test_realsense_dry_read_stream_params():
     sensor.close()
 
 
+def test_realsense_serial_is_yaml_configurable_without_whitelist():
+    """Any serial from YAML must be accepted; no hardcoded MegaCollect table."""
+    from sensors.drivers.camera.realsense import _normalize_role_serials
+
+    assert _normalize_role_serials(None) == {}
+    assert _normalize_role_serials({}) == {}
+
+    sn = "218622279681"
+    sensor = RealSenseSensor(
+        "rs-left",
+        {"role": "left", "serial": sn, "enable_depth": False},
+        SensorContext(dry_run=True),
+    )
+    assert sensor.serial == sn
+    assert sensor.role_serials == {}
+    assert sensor._resolve_serial() == sn
+    # Live config edits (UI / reload) must pick up the new serial without recreate.
+    sensor.configure(serial="218722271098")
+    assert sensor._resolve_serial() == "218722271098"
+    report = sensor.probe()
+    assert report.metrics.get("serial_cfg") == "218722271098"
+    assert report.metrics.get("resolved_serial") == "218722271098"
+    assert not any(c.name == "role_match" for c in report.checks)
+    sensor.open()
+    sample = sensor.read()
+    assert sample["serial"] == "218722271098"
+    sensor.close()
+
+
+def test_realsense_optional_role_serials_are_hints_only():
+    sensor = RealSenseSensor(
+        "rs",
+        {
+            "role": "left",
+            "serial": "999999999999",
+            "role_serials": {"left": ["218622279681"], "right": ["327122077544"]},
+        },
+        SensorContext(dry_run=True),
+    )
+    assert sensor._resolve_serial() == "999999999999"
+    assert sensor._match_role("218622279681") == "left"
+    assert sensor._match_role("999999999999") is None
+
+
 def test_gello_dry_read():
     sensor = GelloLeaderSensor("gello", {}, SensorContext(dry_run=True))
     sensor.open()

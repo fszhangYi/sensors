@@ -11,15 +11,28 @@ from sensors.core.health import CheckResult, HealthReport, HealthStatus
 from sensors.core.kinds import SensorKind
 from sensors.core.registry import register_sensor
 
-# MegaCollect save_data.py role tables (collect mosaic path)
-DEFAULT_ROLE_SERIALS: dict[str, list[str]] = {
-    "left": ["317222074437", "233622072962", "334622072861"],
-    "right": ["317222073322", "233622076758", "337122074288"],
-    "middle": [],
-}
-
 # D400 color (BGR8) typically only accepts these discrete rates — not 5/10/20.
 REALSENSE_COMMON_FPS = (6, 15, 30, 60)
+
+
+def _normalize_role_serials(raw: Any) -> dict[str, list[str]]:
+    """Optional role→serial hints only. Never used to pick or reject a device."""
+    if not isinstance(raw, Mapping):
+        return {}
+    out: dict[str, list[str]] = {}
+    for role, serials in raw.items():
+        if serials is None:
+            continue
+        if isinstance(serials, (str, bytes)):
+            items = [serials]
+        elif isinstance(serials, (list, tuple, set)):
+            items = list(serials)
+        else:
+            continue
+        cleaned = [str(s).strip() for s in items if str(s).strip()]
+        if cleaned:
+            out[str(role).lower()] = cleaned
+    return out
 
 
 def _fps_fallback_order(requested: int) -> list[int]:
@@ -72,7 +85,7 @@ class RealSenseSensor(Sensor):
     def __init__(self, sensor_id: str, config: Mapping[str, Any], ctx: SensorContext | None = None):
         super().__init__(sensor_id, config, ctx)
         self.role = str(config.get("role", "middle")).lower()
-        self.serial = str(config.get("serial") or config.get("endpoint") or "")
+        self.serial = ""
         self.width = int(config.get("width", 1280))
         self.height = int(config.get("height", 720))
         self.fps = int(config.get("fps", 15))
@@ -82,26 +95,30 @@ class RealSenseSensor(Sensor):
         self.align_to_color = coerce_bool(config.get("align_to_color"), True)
         self._stream_requested = (self.width, self.height, self.fps, self.enable_depth)
         self.timeout_ms = int(config.get("timeout_ms", 5000))
-        self.role_serials = dict(config.get("role_serials") or DEFAULT_ROLE_SERIALS)
+        # Optional display-only hints from YAML; empty by default (no lab whitelist).
+        self.role_serials = _normalize_role_serials(config.get("role_serials"))
         self._pipeline = None
         self._align = None
         self._active_serial: str | None = None
         self._fps_requested = self.fps
         self.camera_infos: dict[str, Any] | None = None
+        self._refresh_identity_config()
 
-    def _match_role(self, serial: str) -> str:
-        """Optional role hint from MegaCollect tables (display only; never used to pick a device)."""
+    def _match_role(self, serial: str) -> str | None:
+        """Optional role hint from YAML ``role_serials`` (display only)."""
         for role, serials in self.role_serials.items():
             if serial and serial in serials:
                 return role
-        return "middle"
+        return None
 
     def _resolve_serial(self, devices: list[dict[str, str]] | None = None) -> str | None:
-        """Device selection is serial-only. Empty serial → no device (no role/USB fallback)."""
+        """Device selection is serial-only from YAML/UI. No role/USB whitelist fallback."""
         _ = devices
+        self._refresh_identity_config()
         return self.serial or None
 
     def probe(self) -> HealthReport:
+        self._refresh_identity_config()
         checks: list[CheckResult] = []
         metrics: dict[str, Any] = {
             "role": self.role,
@@ -122,7 +139,11 @@ class RealSenseSensor(Sensor):
             for dev in ctx.query_devices():
                 sn = dev.get_info(rs.camera_info.serial_number)
                 name = dev.get_info(rs.camera_info.name)
-                devices.append({"serial": sn, "name": name, "inferred_role": self._match_role(sn)})
+                inferred = self._match_role(sn)
+                entry: dict[str, str] = {"serial": sn, "name": name}
+                if inferred:
+                    entry["inferred_role"] = inferred
+                devices.append(entry)
         except ImportError:
             checks.append(CheckResult("pyrealsense2", False, "optional: pip install 'hik-sensors[realsense]'"))
         except Exception as e:  # noqa: BLE001
@@ -138,17 +159,16 @@ class RealSenseSensor(Sensor):
                 CheckResult(
                     "serial_required",
                     False,
-                    "set params.serial to the camera serial number (no role/USB auto-pick)",
+                    "set params.serial to the camera serial number (any RealSense; no hardcoded whitelist)",
                     critical=True,
                 )
             )
         elif rs_ok:
             found = any(d["serial"] == self.serial for d in devices)
             checks.append(CheckResult("serial_present", found, self.serial, critical=True))
-            if found:
+            if found and self.role_serials:
                 inferred = self._match_role(self.serial)
-                known = any(self.serial in (serials or []) for serials in self.role_serials.values())
-                if known:
+                if inferred is not None:
                     checks.append(
                         CheckResult(
                             "role_match",
@@ -173,13 +193,24 @@ class RealSenseSensor(Sensor):
             checks=checks,
             metrics=metrics,
             hints=[
-                "Match cameras by serial only — fill params.serial (or UI 相机序列号)",
+                "Cameras are matched by params.serial from YAML/UI only — edit serial freely per station",
                 "Collect mosaic: hconcat(L,R) over hconcat(M, black) → 1440×2560",
                 "Exposure/gain defaults match MegaCollect Realsense(1280,720,15)",
             ],
         )
 
+    def _refresh_identity_config(self) -> None:
+        """Re-read role/serial from ``self.config`` so YAML/UI edits always apply."""
+        self.role = str(self.config.get("role", self.role or "middle")).lower()
+        raw_serial = self.config.get("serial")
+        if raw_serial is None or str(raw_serial).strip() == "":
+            raw_serial = self.config.get("endpoint")
+        self.serial = str(raw_serial).strip() if raw_serial is not None and str(raw_serial).strip() else ""
+        if "role_serials" in self.config:
+            self.role_serials = _normalize_role_serials(self.config.get("role_serials"))
+
     def _refresh_stream_config(self) -> None:
+        self._refresh_identity_config()
         self.width = int(self.config.get("width", self.width))
         self.height = int(self.config.get("height", self.height))
         self.fps = int(float(self.config.get("fps", self.fps)))
@@ -419,6 +450,11 @@ class RealSenseSensor(Sensor):
                 "depth": None,
                 "dry_run": True,
                 "ts": ts,
+                # HW timestamps absent in dry-run; kept for schema parity with live reads.
+                "color_timestamp": None,
+                "depth_timestamp": None,
+                "color_timestamp_domain": None,
+                "depth_timestamp_domain": None,
             }
 
         frames = None
@@ -437,12 +473,18 @@ class RealSenseSensor(Sensor):
         if not color_frame:
             raise RuntimeError(f"{self.id}: no color frame")
         color = np.asanyarray(color_frame.get_data())
+        color_timestamp = float(color_frame.get_timestamp())
+        color_timestamp_domain = str(color_frame.get_frame_timestamp_domain())
 
         depth = None
+        depth_timestamp = None
+        depth_timestamp_domain = None
         if self.enable_depth:
             depth_frame = frames.get_depth_frame()
             if depth_frame:
                 depth = np.asanyarray(depth_frame.get_data())
+                depth_timestamp = float(depth_frame.get_timestamp())
+                depth_timestamp_domain = str(depth_frame.get_frame_timestamp_domain())
 
         return {
             "serial": self._active_serial,
@@ -458,6 +500,11 @@ class RealSenseSensor(Sensor):
             "color_shape": tuple(color.shape),
             "depth_shape": tuple(depth.shape) if depth is not None else None,
             "ts": ts,
+            # Librealsense device timestamps (usually ms). Alignment still uses wall ``ts``.
+            "color_timestamp": color_timestamp,
+            "depth_timestamp": depth_timestamp,
+            "color_timestamp_domain": color_timestamp_domain,
+            "depth_timestamp_domain": depth_timestamp_domain,
         }
 
     def _probe_grab_frame_once(self) -> None:
