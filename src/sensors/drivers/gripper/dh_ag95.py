@@ -93,6 +93,10 @@ class DhAg95Sensor(Sensor):
         self._initialized = False
         self._tick = 0
         self._cmd_lock = threading.Lock()
+        # Serialize all Modbus RTU on the shared serial port (read agent + write
+        # agent share this sensor). Without this, concurrent FC03/FC06 frames
+        # corrupt replies and surface as ok=False with no error string.
+        self._io_lock = threading.RLock()
         self._last_cmd_valid = False
         self._last_cmd_norm: float | None = None
         self._last_cmd_raw: int | None = None
@@ -241,10 +245,11 @@ class DhAg95Sensor(Sensor):
         frame = [self.slave_id] + list(payload)
         crc = _crc16_modbus(frame)
         frame.extend([crc & 0xFF, (crc >> 8) & 0xFF])
-        self._ser.reset_input_buffer()
-        self._ser.write(bytes(frame))
-        self._ser.flush()
-        resp = self._ser.read(expect_len)
+        with self._io_lock:
+            self._ser.reset_input_buffer()
+            self._ser.write(bytes(frame))
+            self._ser.flush()
+            resp = self._ser.read(expect_len)
         return resp if resp else None
 
     def _write_register(self, reg: int, value: int) -> bool:
@@ -423,11 +428,14 @@ class DhAg95Sensor(Sensor):
             ok = self._write_register(REG_POSITION, raw)
             if ok:
                 self._remember_command(position_norm=None, position_raw=raw)
-            return {
+            out: dict[str, Any] = {
                 "ok": ok,
                 "position_raw": raw,
                 "write_ms": (time.perf_counter() - t0) * 1000.0,
             }
+            if not ok:
+                out["error"] = "modbus write REG_POSITION failed (no reply / timeout)"
+            return out
 
         if pos is None:
             return {"ok": False, "error": "position_norm required"}
@@ -453,13 +461,16 @@ class DhAg95Sensor(Sensor):
             time.sleep(wait_ms / 1000.0)
         if ok:
             self._remember_command(position_norm=float(pos), position_raw=raw)
-        return {
+        out = {
             "ok": ok,
             "position_norm": float(pos),
             "position_raw": raw,
             "write_ms": (time.perf_counter() - t0) * 1000.0,
             "wait_ms": wait_ms,
         }
+        if not ok:
+            out["error"] = "modbus write REG_POSITION failed (no reply / timeout)"
+        return out
 
     def calibrate(self, *, settle_s: float = 2.0, poll_s: float = 0.05) -> dict[str, Any]:
         """Fully close then open; record position_raw min/max for mapping."""
