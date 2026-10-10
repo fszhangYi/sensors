@@ -1,0 +1,50 @@
+# Elite CS66 — provisional URDF-derived geometry (not Primary-calibrated).
+# Replace with Primary KinematicsInfo / teach pairs when available, then keep supported: true.
+id: elite_cs66
+brand: Elite
+product: CS66
+supported: true
+notes: >-
+  Provisional link lengths from CS66urdf SolidWorks joint origins (mm):
+  joint1 z=0.1625 → d1; joint3 |x|=0.427 → a2; joint4 |x|=0.3905 → a3,
+  joint4 z=0.1475 → d4; joint5 |y|=0.0965 → d5; joint6 |y|=0.092 → d6.
+  Not a substitute for controller MDH / teach calibration.
+manipulator_type: 1
+dh_convention: link_lengths_standard
+
+# d1, a2, a3, d4, d5, d6 (mm)
+link_length_mm: [162.5, 427.0, 390.5, 147.5, 96.5, 92.0]
+
+joint_offset_deg: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+joint_direction: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+default_joint_angle_mode: machine_deg
+
+base_cs_x: 6
+base_cs_z: 1
+
+install:
+  note: floor
+  rot_z1_deg: 0.0
+  rot_xb_q1_deg: 0.0
+
+# Match sensors-arm Cell B / URDF EOAT tip (~flange→AG95 center). Meters, flange frame.
+default_tcp_xyz_m: [0.0, 0.0, 0.12]
+
+soft_limits_deg:
+  min: [-360.0, -360.0, -360.0, -360.0, -360.0, -360.0]
+  max: [360.0, 360.0, 360.0, 360.0, 360.0, 360.0]
+
+joint_vel_max_deg_s: [180.0, 180.0, 180.0, 180.0, 180.0, 180.0]
+joint_vel_min_deg_s: [5.0, 5.0, 5.0, 5.0, 5.0, 5.0]
+joint_accel_max_deg_s2: [600.0, 600.0, 600.0, 1000.0, 1000.0, 1000.0]
+
+cartesian:
+  vel_max_mm_s: 1500.0
+  vel_min_mm_s: 1.0
+  accel_max_mm_s2: 9000.0
+  ori_vel_max_deg_s: 150.0
+  ori_vel_min_deg_s: 5.0
+  ori_accel_max_deg_s2: 400.0
+
+# Self-consistent FK samples (machine_deg); regenerate after geometry change.
+teach_poses: []

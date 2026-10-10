@@ -26,3 +26,15 @@ venv/
 # Local runtime
 *.log
 /tmp/
+
+# Cursor agent skills (local only)
+.cursor/
+
+# Elite CS SDK clones / build trees (install from upstream; see docs/elite-cs-vs-ec.md)
+third_party/
+
+# Large raw EC616 asset archive (extracted guide_assets + profiles are enough)
+src/sensors/cs66_kinematics/assets.zip
+src/sensors/cs66_kinematics/*.docx.bak-*
+src/sensors/cs66_kinematics/*_兼容版.docx
+src/sensors/cs66_kinematics/*_含公式修复版.docx

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 
 def load_all_drivers() -> None:
+    from sensors.drivers.arm import cs_read as _arm_cs_read  # noqa: F401
+    from sensors.drivers.arm import cs_write as _arm_cs_write  # noqa: F401
     from sensors.drivers.arm import elite_read as _arm_read  # noqa: F401
     from sensors.drivers.arm import elite_write as _arm_write  # noqa: F401
     from sensors.drivers.arm import follower as _arm  # noqa: F401

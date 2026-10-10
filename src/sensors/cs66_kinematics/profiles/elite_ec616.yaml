@@ -1,0 +1,227 @@
+id: elite_ec616
+brand: Elite
+product: EC616
+supported: true
+notes: Ported from sensors.kinematics.constants (hik/demo_test teach calibration).
+manipulator_type: 1
+dh_convention: link_lengths_standard
+link_length_mm:
+- 182.0
+- 478.359
+- 361.183
+- 174.159
+- 116.439
+- 109.807
+joint_offset_deg:
+- 0.0
+- -90.0
+- 0.0
+- -90.0
+- 180.0
+- 0.0
+joint_direction:
+- 1.0
+- 1.0
+- 1.0
+- 1.0
+- 1.0
+- 1.0
+default_joint_angle_mode: machine_deg
+base_cs_x: 6
+base_cs_z: 1
+install:
+  note: floor
+  rot_z1_deg: 0.0
+  rot_xb_q1_deg: 0.0
+default_tcp_xyz_m:
+- 0.0
+- 0.0
+- 0.18
+soft_limits_deg:
+  min:
+  - -360.0
+  - -360.0
+  - -156.0
+  - -360.0
+  - -360.0
+  - -360.0
+  max:
+  - 360.0
+  - 360.0
+  - 156.0
+  - 360.0
+  - 360.0
+  - 360.0
+joint_vel_max_deg_s:
+- 120.0
+- 120.0
+- 150.0
+- 210.0
+- 210.0
+- 210.0
+joint_vel_min_deg_s:
+- 5.0
+- 5.0
+- 5.0
+- 5.0
+- 5.0
+- 5.0
+joint_accel_max_deg_s2:
+- 600.0
+- 150.0
+- 500.0
+- 1000.0
+- 1000.0
+- 1000.0
+cartesian:
+  vel_max_mm_s: 1500.0
+  vel_min_mm_s: 1.0
+  accel_max_mm_s2: 9000.0
+  ori_vel_max_deg_s: 150.0
+  ori_vel_min_deg_s: 5.0
+  ori_accel_max_deg_s2: 400.0
+teach_poses:
+- index: 1
+  joint_deg:
+  - 178.651
+  - -117.16
+  - 118.141
+  - -84.375
+  - 89.94
+  - -2.698
+  position_mm:
+  - -249.834
+  - -168.208
+  - 478.953
+  orientation_rxyz_deg:
+  - 173.398
+  - 0.25
+  - 91.338
+- index: 2
+  joint_deg:
+  - 194.02
+  - -117.16
+  - 118.141
+  - -84.375
+  - 89.94
+  - -2.698
+  position_mm:
+  - -196.317
+  - -228.409
+  - 478.953
+  orientation_rxyz_deg:
+  - 173.398
+  - 0.251
+  - 106.707
+- index: 3
+  joint_deg:
+  - 182.086
+  - -124.934
+  - 106.123
+  - -86.919
+  - 83.258
+  - -11.985
+  position_mm:
+  - -203.603
+  - -168.789
+  - 617.229
+  orientation_rxyz_deg:
+  - -165.809
+  - -9.604
+  - 101.94
+- index: 4
+  joint_deg:
+  - 192.692
+  - -125.088
+  - 106.233
+  - -86.746
+  - 83.318
+  - -11.895
+  position_mm:
+  - -167.758
+  - -203.204
+  - 616.424
+  orientation_rxyz_deg:
+  - -165.913
+  - -9.503
+  - 112.494
+- index: 5
+  joint_deg:
+  - 192.692
+  - -111.531
+  - 106.233
+  - -86.746
+  - 83.318
+  - -11.895
+  position_mm:
+  - -261.445
+  - -224.303
+  - 555.49
+  orientation_rxyz_deg:
+  - -179.369
+  - -6.958
+  - 114.429
+- index: 6
+  joint_deg:
+  - 192.692
+  - -111.531
+  - 99.216
+  - -86.746
+  - 83.318
+  - -11.895
+  position_mm:
+  - -266.458
+  - -225.432
+  - 614.649
+  orientation_rxyz_deg:
+  - -172.426
+  - -8.331
+  - 113.505
+- index: 7
+  joint_deg:
+  - 192.692
+  - -111.531
+  - 99.216
+  - -99.294
+  - 83.318
+  - -11.895
+  position_mm:
+  - -282.319
+  - -229.004
+  - 645.496
+  orientation_rxyz_deg:
+  - -159.893
+  - -10.473
+  - 111.449
+- index: 8
+  joint_deg:
+  - 192.692
+  - -111.531
+  - 99.216
+  - -99.294
+  - 97.827
+  - -11.895
+  position_mm:
+  - -276.128
+  - -256.03
+  - 645.752
+  orientation_rxyz_deg:
+  - -157.239
+  - 2.748
+  - 116.636
+- index: 9
+  joint_deg:
+  - 192.692
+  - -111.531
+  - 99.216
+  - -99.294
+  - 97.825
+  - 24.186
+  position_mm:
+  - -276.128
+  - -256.03
+  - 645.753
+  orientation_rxyz_deg:
+  - -162.858
+  - 15.446
+  - 82.345

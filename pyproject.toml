@@ -21,8 +21,13 @@ zmq = ["pyzmq>=25.0"]
 realsense = ["pyrealsense2>=2.54"]
 dynamixel = ["dynamixel-sdk>=3.7"]
 kinematics = ["scipy>=1.10"]
+# EC series: PyPI elirobots → import elite
+elite-ec = ["elirobots>=0.0.7", "loguru>=0.6.0,<0.7"]
+# CS series: build from Elite-Robots/Elite_Robots_CS_SDK_Python (not on PyPI as elirobots)
+# Install separately: elite_cs_sdk; extras marker kept for docs / tooling.
+elite-cs = []
 dev = ["pytest>=7.0", "ruff>=0.4"]
-all = ["hik-sensors[serial,zmq,realsense,dynamixel,kinematics,dev]"]
+all = ["hik-sensors[serial,zmq,realsense,dynamixel,kinematics,elite-ec,dev]"]
 
 [project.scripts]
 sensors = "sensors.cli.main:main"
