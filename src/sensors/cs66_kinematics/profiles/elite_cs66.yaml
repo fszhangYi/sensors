@@ -1,19 +1,29 @@
-# Elite CS66 — provisional URDF-derived geometry (not Primary-calibrated).
-# Replace with Primary KinematicsInfo / teach pairs when available, then keep supported: true.
+# Elite CS66 — Primary from teach pendant (示教器信息/, 2026-10-12..14).
+# Geometry: MDH dialog; install/safety/joint–pose from CS Controller UI.
+# FK check: 4 teach pairs → position error ≈ 0 mm (R_install = I; TCP = flange).
 id: elite_cs66
 brand: Elite
 product: CS66
 supported: true
 notes: >-
-  Provisional link lengths from CS66urdf SolidWorks joint origins (mm):
-  joint1 z=0.1625 → d1; joint3 |x|=0.427 → a2; joint4 |x|=0.3905 → a3,
-  joint4 z=0.1475 → d4; joint5 |y|=0.0965 → d5; joint6 |y|=0.092 → d6.
-  Not a substitute for controller MDH / teach calibration.
+  Robot SN 07262216810026; CS Controller 2.16.0.0; IP 10.68.110.12.
+  MDH from teach 参数 dialog (m/rad). Soft limits & joint vel from 安全→关节限制
+  (normal mode). Install UI: ceiling preset, tilt 180°, rot-Z 0° — recorded in
+  install.note only; R_install kept identity because 基座 poses are flange-fixed
+  and match MDH FK without Rx(180). Active TCP on pendant was [0]*6 (flange).
+  Joint accel / min joint vel / cartesian accel not on photographed pages —
+  cartesian tool speed 1500 from 机器人限制; other motion bounds provisional.
 manipulator_type: 1
-dh_convention: link_lengths_standard
+dh_convention: mdh
 
-# d1, a2, a3, d4, d5, d6 (mm)
-link_length_mm: [162.5, 427.0, 390.5, 147.5, 96.5, 92.0]
+# Diagnostic / fallback lengths (mm): |d1|, |a3|, |a4|, d4, d5, d6 from MDH.
+link_length_mm: [162.222, 427.765, 391.333, 148.102, 96.2059, 94.8112]
+
+# Teach MDH table (rows a / d / alpha; columns J1..J6), units m and rad.
+mdh:
+  a_m: [0.0, 0.0, -0.4277650, -0.3913330, 0.0, 0.0]
+  d_m: [0.1622220, 0.0, 0.0, 0.1481020, 0.0962059, 0.0948112]
+  alpha_rad: [0.0, 1.5708000, 0.0, 0.0, 1.5708000, -1.5708000]
 
 joint_offset_deg: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 joint_direction: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
@@ -23,22 +33,26 @@ base_cs_x: 6
 base_cs_z: 1
 
 install:
-  note: floor
+  note: ceiling; tilt=180.0deg; rot_z=0.0deg (CS UI). FK uses R_install=I.
   rot_z1_deg: 0.0
   rot_xb_q1_deg: 0.0
 
-# Match sensors-arm Cell B / URDF EOAT tip (~flange→AG95 center). Meters, flange frame.
-default_tcp_xyz_m: [0.0, 0.0, 0.12]
+# Pendant active TCP was flange origin during teach pairs.
+default_tcp_xyz_m: [0.0, 0.0, 0.0]
 
+# 安全 → 关节限制 → 位置范围（正常模式）
 soft_limits_deg:
-  min: [-360.0, -360.0, -360.0, -360.0, -360.0, -360.0]
-  max: [360.0, 360.0, 360.0, 360.0, 360.0, 360.0]
+  min: [-363.0, -363.0, -363.0, -363.0, -363.0, -363.0]
+  max: [363.0, 363.0, 363.0, 363.0, 363.0, 363.0]
 
-joint_vel_max_deg_s: [180.0, 180.0, 180.0, 180.0, 180.0, 180.0]
+# 安全 → 关节限制 → 最大速度（正常模式）；min 页未拍到，暂留 5
+joint_vel_max_deg_s: [150.0, 150.0, 164.0, 225.0, 225.0, 225.0]
 joint_vel_min_deg_s: [5.0, 5.0, 5.0, 5.0, 5.0, 5.0]
+# 各轴加速度页未出现在示教器信息照片中 — provisional placeholders
 joint_accel_max_deg_s2: [600.0, 600.0, 600.0, 1000.0, 1000.0, 1000.0]
 
 cartesian:
+  # 工具速度 normal from 安全→机器人限制; rest provisional / prior defaults
   vel_max_mm_s: 1500.0
   vel_min_mm_s: 1.0
   accel_max_mm_s2: 9000.0
@@ -46,5 +60,21 @@ cartesian:
   ori_vel_min_deg_s: 5.0
   ori_accel_max_deg_s2: 400.0
 
-# Self-consistent FK samples (machine_deg); regenerate after geometry change.
-teach_poses: []
+# 操作页；手动 / 100% 速度；坐标系=基座；激活 TCP=TCP(0)；姿态 RPY[°]
+teach_poses:
+- index: 1
+  joint_deg: [46.889, -62.737, 120.028, -150.651, 90.667, 40.356]
+  position_mm: [-232.958, -463.942, 313.466]
+  orientation_rxyz_deg: [-2.993, 1.667, -2.779]
+- index: 2
+  joint_deg: [29.937, -58.614, 114.968, -149.373, 91.617, 57.285]
+  position_mm: [-387.304, -390.861, 301.328]
+  orientation_rxyz_deg: [-2.992, 1.667, -2.778]
+- index: 3
+  joint_deg: [-5.283, -71.339, 139.556, -159.752, 93.062, 92.507]
+  position_mm: [-387.303, -107.835, 301.324]
+  orientation_rxyz_deg: [-2.992, 1.667, -2.779]
+- index: 4
+  joint_deg: [61.007, -46.609, 70.870, -115.722, 89.940, 23.959]
+  position_mm: [-231.181, -722.938, 409.510]
+  orientation_rxyz_deg: [-1.311, 0.648, -5.042]
