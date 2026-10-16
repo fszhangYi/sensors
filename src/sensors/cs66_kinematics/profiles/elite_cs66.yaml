@@ -1,6 +1,7 @@
-# Elite CS66 — Primary from teach pendant (示教器信息/, 2026-10-12..14).
+# Elite CS66 — Primary from teach pendant (示教器信息/ + 交叉验证/, 2026-10-12..15).
 # Geometry: MDH dialog; install/safety/joint–pose from CS Controller UI.
-# FK check: 4 teach pairs → position error ≈ 0 mm (R_install = I; TCP = flange).
+# FK: teach_poses #1–#8 → position error ≈ 0.003–0.005 mm (R_install = I; TCP = flange).
+# sensors-arm URDF joint origins rebuilt from this MDH (static/models/cs66/cs66.urdf).
 id: elite_cs66
 brand: Elite
 product: CS66
@@ -11,8 +12,9 @@ notes: >-
   (normal mode). Install UI: ceiling preset, tilt 180°, rot-Z 0° — recorded in
   install.note only; R_install kept identity because 基座 poses are flange-fixed
   and match MDH FK without Rx(180). Active TCP on pendant was [0]*6 (flange).
-  Joint accel / min joint vel / cartesian accel not on photographed pages —
-  cartesian tool speed 1500 from 机器人限制; other motion bounds provisional.
+  teach_poses 1–4 from 示教器信息; 5–8 from 2026-10-15 交叉验证 IMG_9667–9670
+  (IMG_9666 skipped, ΔY≈3.3mm unsynced). Joint accel / min joint vel provisional;
+  cartesian tool speed 1500 from 机器人限制.
 manipulator_type: 1
 dh_convention: mdh
 
@@ -78,3 +80,21 @@ teach_poses:
   joint_deg: [61.007, -46.609, 70.870, -115.722, 89.940, 23.959]
   position_mm: [-231.181, -722.938, 409.510]
   orientation_rxyz_deg: [-1.311, 0.648, -5.042]
+
+# 2026-10-15 交叉验证 (IMG_9667–9670; skip IMG_9666 ΔY≈3.3mm unsynced)
+- index: 5
+  joint_deg: [0.598, -94.084, 146.116, -142.052, 89.987, -0.993]
+  position_mm: [-304.899, -151.314, 375.239]
+  orientation_rxyz_deg: [-0.021, 0.013, -90.396]
+- index: 6
+  joint_deg: [0.657, -98.394, 149.601, -141.228, 89.987, -1.053]
+  position_mm: [-277.180, -151.313, 375.241]
+  orientation_rxyz_deg: [-0.021, 0.013, -90.396]
+- index: 7
+  joint_deg: [0.586, -93.157, 145.293, -142.157, 89.987, -0.981]
+  position_mm: [-311.281, -151.314, 375.235]
+  orientation_rxyz_deg: [-0.020, 0.013, -90.396]
+- index: 8
+  joint_deg: [0.500, -86.285, 138.361, -142.097, 89.987, -0.895]
+  position_mm: [-363.102, -151.300, 375.240]
+  orientation_rxyz_deg: [-0.021, 0.013, -90.395]
