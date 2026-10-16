@@ -292,12 +292,40 @@ def test_realsense_fps_fallback_prefers_nearest():
     assert _fps_fallback_order(12)[1] == 15
 
 
+def test_realsense_pipeline_candidates_keep_depth_before_color_only():
+    """Depth-on profiles (incl. 640x480) must precede depth=False fallbacks."""
+    from sensors.drivers.camera.realsense import _is_d405_name
+
+    sensor = RealSenseSensor(
+        "rs",
+        {
+            "role": "left",
+            "serial": "1",
+            "width": 1280,
+            "height": 720,
+            "fps": 15,
+            "enable_depth": True,
+        },
+        SensorContext(dry_run=True),
+    )
+    sensor._refresh_stream_config()
+    cands = sensor._pipeline_candidates()
+    assert cands[0][:3] == (1280, 720, 15) and cands[0][3] is True
+    # 640x480+depth appears before any depth=False entry.
+    first_no_depth = next(i for i, c in enumerate(cands) if c[3] is False)
+    first_vga_depth = next(i for i, c in enumerate(cands) if c[:2] == (640, 480) and c[3] is True)
+    assert first_vga_depth < first_no_depth
+    assert _is_d405_name("Intel RealSense D405")
+    assert not _is_d405_name("Intel RealSense D435")
+
+
 def test_realsense_dry_read_stream_params():
     sensor = RealSenseSensor("rs", {"role": "left", "enable_depth": False}, SensorContext(dry_run=True))
     sensor.open()
     sample = sensor.read()
     assert sample["width"] == 1280
     assert sample["enable_depth"] is False
+    assert sample.get("depth_colorized") is None
     sensor.close()
 
 

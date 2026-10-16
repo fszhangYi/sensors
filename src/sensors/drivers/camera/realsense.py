@@ -42,6 +42,22 @@ def _fps_fallback_order(requested: int) -> list[int]:
     return sorted(known, key=lambda f: (abs(f - req), f))
 
 
+def _is_d405_name(name: str | None) -> bool:
+    """True for Intel RealSense D405 (short-range wrist cams)."""
+    n = (name or "").upper()
+    return "D405" in n or "405" in n
+
+
+def _colorize_depth_frame(colorizer: Any, depth_frame: Any) -> np.ndarray | None:
+    """Pseudo-color depth via ``rs.colorizer`` (same path as show_d405.py)."""
+    if colorizer is None or not depth_frame:
+        return None
+    try:
+        colorized = colorizer.colorize(depth_frame)
+        return np.asanyarray(colorized.get_data()).copy()
+    except Exception:  # noqa: BLE001
+        return None
+
 
 def _intrinsics_list(intr: Any) -> list[float]:
     return [float(intr.fx), float(intr.fy), float(intr.ppx), float(intr.ppy)]
@@ -99,8 +115,11 @@ class RealSenseSensor(Sensor):
         self.role_serials = _normalize_role_serials(config.get("role_serials"))
         self._pipeline = None
         self._align = None
+        self._colorizer = None
         self._active_serial: str | None = None
+        self._device_name: str | None = None
         self._fps_requested = self.fps
+        self.depth_scale: float | None = None
         self.camera_infos: dict[str, Any] | None = None
         self._refresh_identity_config()
 
@@ -221,6 +240,13 @@ class RealSenseSensor(Sensor):
         self._stream_requested = (self.width, self.height, self.fps, self.enable_depth)
 
     def _pipeline_candidates(self) -> list[tuple[int, int, int, bool]]:
+        """Ordered (w, h, fps, depth) tries.
+
+        When depth is requested, exhaust depth-capable profiles (including
+        640x480 like show_d405) **before** falling back to color-only. The old
+        order tried ``depth=False`` at the requested resolution first, which
+        silently disabled depth on D405 / picky USB setups.
+        """
         req_w, req_h, req_fps, req_depth = self._stream_requested
         seen: set[tuple[int, int, int, bool]] = set()
         out: list[tuple[int, int, int, bool]] = []
@@ -232,15 +258,31 @@ class RealSenseSensor(Sensor):
                 out.append(key)
 
         fps_order = _fps_fallback_order(req_fps)
-        # 1) Exact request (and depth off) before changing resolution
-        for depth in (req_depth, False):
-            for fps in fps_order:
-                add(req_w, req_h, fps, depth)
-        # 2) Common resolutions with nearest fps
-        for w, h in ((1280, 720), (640, 480)):
-            for depth in (req_depth, False):
+        res_order: list[tuple[int, int]] = []
+
+        def add_res(w: int, h: int) -> None:
+            key = (int(w), int(h))
+            if key not in res_order:
+                res_order.append(key)
+
+        add_res(req_w, req_h)
+        # show_d405 / D405: 640x480 color+depth is the reliable mode.
+        if req_depth or _is_d405_name(self._device_name):
+            add_res(640, 480)
+        add_res(1280, 720)
+        add_res(640, 480)
+
+        # Pass 1: keep depth if requested.
+        depth_flags = (True,) if req_depth else (False,)
+        for w, h in res_order:
+            for depth in depth_flags:
                 for fps in fps_order:
                     add(w, h, fps, depth)
+        # Pass 2: only then allow dropping depth.
+        if req_depth:
+            for w, h in res_order:
+                for fps in fps_order:
+                    add(w, h, fps, False)
         return out
 
     def _actual_video_fps(self, rs: Any, profile: Any) -> int:
@@ -266,10 +308,12 @@ class RealSenseSensor(Sensor):
             "fps": int(self.fps),
             "enable_depth": bool(self.enable_depth),
             "align_to_color": bool(self.align_to_color),
+            "depth_scale": self.depth_scale,
         }
         try:
             device = profile.get_device()
             info["name"] = device.get_info(rs.camera_info.name)
+            self._device_name = info["name"]
         except Exception:  # noqa: BLE001
             info["name"] = None
 
@@ -340,21 +384,28 @@ class RealSenseSensor(Sensor):
             )
 
         ctx = rs.context()
-        present = {
-            dev.get_info(rs.camera_info.serial_number)
-            for dev in ctx.query_devices()
-        }
+        present: dict[str, str] = {}
+        for dev in ctx.query_devices():
+            sn = dev.get_info(rs.camera_info.serial_number)
+            present[sn] = dev.get_info(rs.camera_info.name)
         if serial not in present:
             raise RuntimeError(
                 f"{self.id}: RealSense serial={serial!r} not found "
                 f"(connected={sorted(present) or 'none'})"
             )
+        self._device_name = present.get(serial)
 
         self._refresh_stream_config()
+        # D405: show_d405 opens 640x480 color+depth; prefer that over failing 720p+depth.
+        if self.enable_depth and _is_d405_name(self._device_name):
+            if (self.width, self.height) == (1280, 720):
+                self.width, self.height = 640, 480
+                self._stream_requested = (self.width, self.height, self.fps, self.enable_depth)
         pipeline, profile = self._start_pipeline(rs, serial)
         # MegaCollect: disable auto-exposure, fixed exposure/gain
         try:
             device = profile.get_device()
+            self._device_name = device.get_info(rs.camera_info.name)
             for sensor in device.query_sensors():
                 if sensor.is_color_sensor():
                     if sensor.supports(rs.option.enable_auto_exposure):
@@ -366,8 +417,17 @@ class RealSenseSensor(Sensor):
         except Exception:  # noqa: BLE001
             pass
 
+        self.depth_scale = None
+        if self.enable_depth:
+            try:
+                depth_sensor = profile.get_device().first_depth_sensor()
+                self.depth_scale = float(depth_sensor.get_depth_scale())
+            except Exception:  # noqa: BLE001
+                self.depth_scale = None
+
         self._pipeline = pipeline
         self._align = rs.align(rs.stream.color) if self.enable_depth and self.align_to_color else None
+        self._colorizer = rs.colorizer() if self.enable_depth else None
         self._active_serial = serial
         try:
             self.camera_infos = self._capture_camera_infos(rs, profile, serial=serial)
@@ -377,6 +437,7 @@ class RealSenseSensor(Sensor):
                 "role": self.role,
                 "width": int(self.width),
                 "height": int(self.height),
+                "depth_scale": self.depth_scale,
                 "error": str(e),
             }
         self._opened = True
@@ -430,7 +491,9 @@ class RealSenseSensor(Sensor):
                 pass
             self._pipeline = None
         self._align = None
+        self._colorizer = None
         self._active_serial = None
+        self.depth_scale = None
         self._opened = False
 
     def read(self) -> Mapping[str, Any]:
@@ -446,8 +509,10 @@ class RealSenseSensor(Sensor):
                 "fps_requested": getattr(self, "_fps_requested", self.fps),
                 "enable_depth": self.enable_depth,
                 "align_to_color": self.align_to_color,
+                "depth_scale": self.depth_scale,
                 "color": None,
                 "depth": None,
+                "depth_colorized": None,
                 "dry_run": True,
                 "ts": ts,
                 # HW timestamps absent in dry-run; kept for schema parity with live reads.
@@ -466,25 +531,36 @@ class RealSenseSensor(Sensor):
                 time.sleep(0.05)
         if frames is None:
             raise RuntimeError(f"{self.id}: no frames within {min(self.timeout_ms, 1500)}ms")
+        # Hold frames while we extract color/depth (and colorize) — same as show_d405.
+        try:
+            frames.keep()
+        except Exception:  # noqa: BLE001
+            pass
         if self._align is not None:
             frames = self._align.process(frames)
+            try:
+                frames.keep()
+            except Exception:  # noqa: BLE001
+                pass
 
         color_frame = frames.get_color_frame()
         if not color_frame:
             raise RuntimeError(f"{self.id}: no color frame")
-        color = np.asanyarray(color_frame.get_data())
+        color = np.asanyarray(color_frame.get_data()).copy()
         color_timestamp = float(color_frame.get_timestamp())
         color_timestamp_domain = str(color_frame.get_frame_timestamp_domain())
 
         depth = None
+        depth_colorized = None
         depth_timestamp = None
         depth_timestamp_domain = None
         if self.enable_depth:
             depth_frame = frames.get_depth_frame()
             if depth_frame:
-                depth = np.asanyarray(depth_frame.get_data())
+                depth = np.asanyarray(depth_frame.get_data()).copy()
                 depth_timestamp = float(depth_frame.get_timestamp())
                 depth_timestamp_domain = str(depth_frame.get_frame_timestamp_domain())
+                depth_colorized = _colorize_depth_frame(self._colorizer, depth_frame)
 
         return {
             "serial": self._active_serial,
@@ -495,8 +571,10 @@ class RealSenseSensor(Sensor):
             "fps_requested": getattr(self, "_fps_requested", self.fps),
             "enable_depth": self.enable_depth,
             "align_to_color": self.align_to_color,
+            "depth_scale": self.depth_scale,
             "color": color,
             "depth": depth,
+            "depth_colorized": depth_colorized,
             "color_shape": tuple(color.shape),
             "depth_shape": tuple(depth.shape) if depth is not None else None,
             "ts": ts,
