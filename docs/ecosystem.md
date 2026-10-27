@@ -1,8 +1,10 @@
 # Sensors ecosystem map (for agents)
 
-**Audience:** Cursor / coding agents organizing or changing code under `/root/autodl-tmp`.  
-**Canonical copy:** this file (`sensors/docs/ecosystem.md`). Workspace root `AGENTS.md` points here.  
-**Core library:** `hik-sensors` at `/root/autodl-tmp/sensors` (import package name: `sensors`).
+**Audience:** Cursor / coding agents organizing or changing code in a sensors multi-repo workspace.  
+**Bootstrap (clone URLs, env deps, symlink layout):** [`../AGENTS.md`](../AGENTS.md) — start there on a **new machine**.  
+**Canonical deep map:** this file (`sensors/docs/ecosystem.md`).  
+**Core library:** `hik-sensors` (`sensors` on disk; import package name: `sensors`).  
+**GitHub org/user:** [`fszhangYi`](https://github.com/fszhangYi) — see AGENTS.md for per-repo clone URLs.
 
 When unsure where a change belongs, **default to extending `sensors`**, not forking drivers into an app.
 
