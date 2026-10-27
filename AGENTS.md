@@ -50,13 +50,8 @@ Clone with HTTPS or SSH. Public repos under `fszhangYi`:
 | `embody_model_eval` | https://github.com/fszhangYi/embody_model_eval.git | `main` (use **`dev`** for latest) | Model eval SPA; embeds sensors-view | If eval / embed host |
 | `office_skills` | https://github.com/fszhangYi/office_skills.git | `main` | Agent skills (Scheme A, iframe, Embody UI…) | Recommended for agents |
 | `sensors-arm` | https://github.com/fszhangYi/sensors-arm.git | `main` | Multi-arm viz/control (split from DCS) | If arm-only UI |
+| `rs-calibration` | https://github.com/fszhangYi/rs-calibration.git | **`autodl`** | Eye-to-hand calibration host | If calibrating |
 | `cad-browser` | https://github.com/fszhangYi/cad-browser.git | `master` | Mechanical CAD browser (optional) | No |
-
-### Not on GitHub yet (local-only as of 2026-10-27)
-
-| Local name | Intended GitHub (when published) | Role |
-|------------|----------------------------------|------|
-| `rs-calibration` | `https://github.com/fszhangYi/rs-calibration.git` | Eye-to-hand calibration host |
 
 Legacy reference only (not required, often unpublished): `hww/hik_gello`, `demo_test`.
 
@@ -93,6 +88,7 @@ clone https://github.com/fszhangYi/sensors-dcs.git        sensors-dcs
 clone https://github.com/fszhangYi/embody_model_eval.git  embody_model_eval  dev
 clone https://github.com/fszhangYi/office_skills.git      office_skills
 clone https://github.com/fszhangYi/sensors-arm.git        sensors-arm
+clone https://github.com/fszhangYi/rs-calibration.git   rs-calibration  autodl
 
 # Optional
 # clone https://github.com/fszhangYi/cad-browser.git      cad-browser
@@ -101,9 +97,8 @@ clone https://github.com/fszhangYi/sensors-arm.git        sensors-arm
 ln -sfn "$WS/sensors" "$WS/sensors-view/sensors"
 ln -sfn "$WS/sensors" "$WS/sensors-dcs/sensors"
 ln -sfn "$WS/sensors" "$WS/sensors-arm/sensors"
-# When rs-calibration is published:
-# mkdir -p "$WS/rs-calibration/vendor"
-# ln -sfn "$WS/sensors/src/sensors" "$WS/rs-calibration/vendor/sensors"
+mkdir -p "$WS/rs-calibration/vendor"
+ln -sfn "$WS/sensors/src/sensors" "$WS/rs-calibration/vendor/sensors"
 
 # Cursor entrypoints: workspace AGENTS.md → sensors bootstrap copy
 ln -sfn "$WS/sensors/AGENTS.md" "$WS/AGENTS.md" 2>/dev/null || cp -f "$WS/sensors/AGENTS.md" "$WS/AGENTS.md"
@@ -275,4 +270,4 @@ If an agent is asked “is everything on GitHub?”:
 
 1. Confirm remotes for the table above resolve (`git ls-remote`).  
 2. Push any local-ahead branches on machines that have deploy/user keys.  
-3. For missing **`rs-calibration`**: create empty repo under `fszhangYi`, add `origin`, `git push -u origin HEAD`, then update this table’s “Not on GitHub yet” section.
+3. Keep default branches in sync with the table (`embody_model_eval` → `dev`, `rs-calibration` → `autodl`).
