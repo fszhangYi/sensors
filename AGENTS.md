@@ -49,15 +49,13 @@ Clone with HTTPS or SSH. Public repos under `fszhangYi`:
 | `sensors-dcs` | https://github.com/fszhangYi/sensors-dcs.git | `master` | Data collection / export / teleop | If collecting |
 | `embody_model_eval` | https://github.com/fszhangYi/embody_model_eval.git | `main` (use **`dev`** for latest) | Model eval SPA; embeds sensors-view | If eval / embed host |
 | `office_skills` | https://github.com/fszhangYi/office_skills.git | `main` | Agent skills (Scheme A, iframe, Embody UI…) | Recommended for agents |
+| `sensors-arm` | https://github.com/fszhangYi/sensors-arm.git | `main` | Multi-arm viz/control (split from DCS) | If arm-only UI |
 | `cad-browser` | https://github.com/fszhangYi/cad-browser.git | `master` | Mechanical CAD browser (optional) | No |
 
 ### Not on GitHub yet (local-only as of 2026-10-27)
 
-These exist on the development AutoDL host but **have no `fszhangYi/...` remote**. Do **not** invent URLs. If the user needs them, ask them to create empty public repos and push, or skip:
-
 | Local name | Intended GitHub (when published) | Role |
 |------------|----------------------------------|------|
-| `sensors-arm` | `https://github.com/fszhangYi/sensors-arm.git` | Multi-arm viz/control (split from DCS) |
 | `rs-calibration` | `https://github.com/fszhangYi/rs-calibration.git` | Eye-to-hand calibration host |
 
 Legacy reference only (not required, often unpublished): `hww/hik_gello`, `demo_test`.
@@ -94,6 +92,7 @@ clone https://github.com/fszhangYi/sensors-view.git       sensors-view
 clone https://github.com/fszhangYi/sensors-dcs.git        sensors-dcs
 clone https://github.com/fszhangYi/embody_model_eval.git  embody_model_eval  dev
 clone https://github.com/fszhangYi/office_skills.git      office_skills
+clone https://github.com/fszhangYi/sensors-arm.git        sensors-arm
 
 # Optional
 # clone https://github.com/fszhangYi/cad-browser.git      cad-browser
@@ -101,8 +100,8 @@ clone https://github.com/fszhangYi/office_skills.git      office_skills
 # Symlink core library into apps (required layout)
 ln -sfn "$WS/sensors" "$WS/sensors-view/sensors"
 ln -sfn "$WS/sensors" "$WS/sensors-dcs/sensors"
-# When sensors-arm / rs-calibration are published:
-# ln -sfn "$WS/sensors" "$WS/sensors-arm/sensors"
+ln -sfn "$WS/sensors" "$WS/sensors-arm/sensors"
+# When rs-calibration is published:
 # mkdir -p "$WS/rs-calibration/vendor"
 # ln -sfn "$WS/sensors/src/sensors" "$WS/rs-calibration/vendor/sensors"
 
@@ -276,4 +275,4 @@ If an agent is asked “is everything on GitHub?”:
 
 1. Confirm remotes for the table above resolve (`git ls-remote`).  
 2. Push any local-ahead branches on machines that have deploy/user keys.  
-3. For missing **`sensors-arm`** / **`rs-calibration`**: create empty repos under `fszhangYi`, add `origin`, `git push -u origin HEAD`, then update this table’s “Not on GitHub yet” section.
+3. For missing **`rs-calibration`**: create empty repo under `fszhangYi`, add `origin`, `git push -u origin HEAD`, then update this table’s “Not on GitHub yet” section.
