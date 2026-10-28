@@ -1,0 +1,131 @@
+# Elite CS66 (unit G26562) — from 示教器信息/ WeChat shots 2026-10-27 + MDH.jpg.
+# Geometry: MDH dialog photographed as 示教器信息/MDH.jpg (this unit).
+# Install: floor; tilt=0°; rot-Z=0°; R_install = I (基座 poses).
+# Soft limits & joint vel: 安全→关节限制 (normal). TCP active = [0]*6 (flange).
+id: elite_cs66
+brand: Elite
+product: CS66
+supported: true
+notes: >-
+  Unit tag / package: cs66_kin_g26562. Controller IP FB1:192.168.1.200;
+  CS UI date 2026-10-27. MDH from 示教器信息/MDH.jpg (unit-specific a/d;
+  α same π/2 pattern as CS66 family). teach_poses #1–#16 from
+  微信图片_20261027203352 … 04203 (paired joint+pose on 操作页; 手动;
+  RPY[°]; 坐标系=基座). Install shot 03348/04207: 地面, 倾斜0, 绕Z0;
+  TCP [0]*6. Soft-limit/vel shot 04214. Joint accel / cartesian min & ori
+  limits not photographed — provisional placeholders retained.
+  交叉验证.md from the same teach pairs after unit MDH update.
+manipulator_type: 1
+dh_convention: mdh
+
+# Diagnostic / fallback lengths (mm): |d1|, |a3|, |a4|, d4, d5, d6 from MDH.
+link_length_mm: [162.458, 427.807, 391.197, 147.834, 95.8973, 94.6230]
+
+# Teach MDH table (rows a / d / alpha; columns J1..J6), units m and rad.
+# Source: 示教器信息/MDH.jpg (G26562 unit), 2026-10-28 extract.
+mdh:
+  a_m: [0.0, 0.0, -0.4278070, -0.3911970, 0.0, 0.0]
+  d_m: [0.1624580, 0.0, 0.0, 0.1478340, 0.0958973, 0.0946230]
+  alpha_rad: [0.0, 1.5708000, 0.0, 0.0, 1.5708000, -1.5708000]
+
+joint_offset_deg: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+joint_direction: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+default_joint_angle_mode: machine_deg
+
+base_cs_x: 6
+base_cs_z: 1
+
+install:
+  note: floor; tilt=0.0deg; rot_z=0.0deg (CS UI 2026-10-27). FK uses R_install=I.
+  rot_z1_deg: 0.0
+  rot_xb_q1_deg: 0.0
+
+# Pendant active TCP was flange origin during teach pairs.
+default_tcp_xyz_m: [0.0, 0.0, 0.0]
+
+# 安全 → 关节限制 → 位置范围（正常模式）微信图片_20261027204214
+soft_limits_deg:
+  min: [-363.0, -363.0, -363.0, -363.0, -363.0, -363.0]
+  max: [363.0, 363.0, 363.0, 363.0, 363.0, 363.0]
+
+# 安全 → 关节限制 → 最大速度（正常模式）
+joint_vel_max_deg_s: [164.0, 164.0, 210.0, 290.0, 290.0, 290.0]
+joint_vel_min_deg_s: [5.0, 5.0, 5.0, 5.0, 5.0, 5.0]
+# 加速度页未出现在本次示教器信息中 — provisional
+joint_accel_max_deg_s2: [600.0, 600.0, 600.0, 1000.0, 1000.0, 1000.0]
+
+cartesian:
+  # 工具速度页未完整拍摄；保留先前 CS66 量级 placeholder
+  vel_max_mm_s: 1500.0
+  vel_min_mm_s: 1.0
+  accel_max_mm_s2: 9000.0
+  ori_vel_max_deg_s: 150.0
+  ori_vel_min_deg_s: 5.0
+  ori_accel_max_deg_s2: 400.0
+
+# 操作页；基座；激活 TCP=[0]*6；姿态 RPY[°]（SciPy intrinsic xyz）
+teach_poses:
+- index: 1
+  joint_deg: [174.316, -105.899, 106.028, -158.769, 267.136, 0.344]
+  position_mm: [409.165, 103.090, 627.906]
+  orientation_rxyz_deg: [-111.334, -0.722, -98.476]
+- index: 2
+  joint_deg: [174.329, -105.882, 108.831, -147.676, 267.894, 0.338]
+  position_mm: [418.459, 103.510, 577.497]
+  orientation_rxyz_deg: [-125.251, -0.940, -97.587]
+- index: 3
+  joint_deg: [174.329, -105.875, 108.947, -139.008, 275.662, 0.343]
+  position_mm: [421.503, 116.084, 556.407]
+  orientation_rxyz_deg: [-133.941, 4.181, -91.835]
+- index: 4
+  joint_deg: [174.305, -105.876, 108.955, -134.687, 255.150, 0.344]
+  position_mm: [416.299, 82.681, 548.228]
+  orientation_rxyz_deg: [-137.375, -10.815, -105.938]
+- index: 5
+  joint_deg: [173.830, -102.991, 110.152, -118.601, 248.282, 0.344]
+  position_mm: [423.101, 67.737, 483.783]
+  orientation_rxyz_deg: [-156.970, -20.013, -104.791]
+- index: 6
+  joint_deg: [173.850, -102.906, 110.362, -112.732, 282.878, 0.355]
+  position_mm: [424.893, 124.120, 464.975]
+  orientation_rxyz_deg: [-164.425, 12.512, -93.053]
+- index: 7
+  joint_deg: [173.838, -102.912, 110.443, -90.962, 272.319, 0.351]
+  position_mm: [390.782, 110.352, 423.281]
+  orientation_rxyz_deg: [173.412, 2.264, -96.777]
+- index: 8
+  joint_deg: [173.840, -114.826, 114.373, -86.466, 272.310, 0.349]
+  position_mm: [316.769, 118.342, 454.258]
+  orientation_rxyz_deg: [176.903, 2.288, -96.632]
+- index: 9
+  joint_deg: [159.848, -114.823, 114.383, -86.458, 267.880, 0.340]
+  position_mm: [333.451, 31.375, 454.135]
+  orientation_rxyz_deg: [176.909, -2.135, -110.377]
+- index: 10
+  joint_deg: [169.886, -129.459, 123.736, -84.017, 268.087, 0.349]
+  position_mm: [234.927, 105.054, 436.762]
+  orientation_rxyz_deg: [179.751, -1.914, -100.455]
+- index: 11
+  joint_deg: [169.884, -147.329, 137.198, -105.590, 268.035, 0.345]
+  position_mm: [175.440, 115.572, 418.630]
+  orientation_rxyz_deg: [-154.256, -1.620, -101.280]
+- index: 12
+  joint_deg: [169.874, -147.350, 137.192, -109.921, 253.579, 0.344]
+  position_mm: [172.234, 92.241, 431.772]
+  orientation_rxyz_deg: [-148.803, -13.981, -108.831]
+- index: 13
+  joint_deg: [169.859, -147.340, 126.788, -113.751, 248.722, 0.177]
+  position_mm: [154.198, 87.717, 534.537]
+  orientation_rxyz_deg: [-133.642, -14.924, -115.484]
+- index: 14
+  joint_deg: [169.865, -147.333, 123.180, -119.846, 272.902, 0.191]
+  position_mm: [154.465, 127.433, 575.468]
+  orientation_rxyz_deg: [-125.969, 1.860, -97.899]
+- index: 15
+  joint_deg: [169.866, -150.814, 110.651, -106.581, 241.094, 0.182]
+  position_mm: [64.548, 92.177, 658.153]
+  orientation_rxyz_deg: [-119.834, -15.213, -125.012]
+- index: 16
+  joint_deg: [169.866, -150.816, 89.231, -84.336, 247.505, 0.191]
+  position_mm: [-40.603, 120.657, 745.570]
+  orientation_rxyz_deg: [-121.986, -12.218, -119.170]

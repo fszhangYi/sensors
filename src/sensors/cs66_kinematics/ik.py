@@ -109,6 +109,7 @@ def ik_flange(
     lm_method: Literal["lm", "trf"] = "lm",
     enforce_teach_soft_limits: bool = False,
     kin_cfg: Optional[KinematicConfig] = None,
+    solver_tol: Optional[float] = None,
 ) -> Union[np.ndarray, IkResult]:
     """求解法兰逆运动学（数值法），返回关节角度（度）或包含详细信息的 IK 结果对象。
 
@@ -173,16 +174,17 @@ def ik_flange(
         T_cur = fk_from_config(q_rad, T0, cfg)
         return pose_error_se3(T_cur, T_des, ori_weight)
 
-    # 构造 least_squares 调用参数
+    # Interactive drag uses looser solver_tol (e.g. 1e-6); default stays precise.
+    _tol = 1e-12 if solver_tol is None else max(1e-14, float(solver_tol))
     kwargs: dict = {
         "fun": residual,
         "x0": q0,
         "max_nfev": int(max_nfev),
-        "ftol": 1e-12,   # 函数值（残差平方和）的容忍变化
-        "xtol": 1e-12,   # 自变量的容忍变化
-        "gtol": 1e-12,   # 梯度的容忍范数
+        "ftol": _tol,
+        "xtol": _tol,
+        "gtol": _tol,
     }
-    
+
     # 选择求解器：若需要边界约束或显式指定 trf，则使用 trust-region reflective 方法
     use_trf = lm_method == "trf" or enforce_teach_soft_limits
     if use_trf:

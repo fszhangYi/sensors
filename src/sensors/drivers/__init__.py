@@ -15,4 +15,5 @@ def load_all_drivers() -> None:
     from sensors.drivers.extensions import paxini as _tac  # noqa: F401
     from sensors.drivers.gello import leader as _gello  # noqa: F401
     from sensors.drivers.gripper import dh_ag95 as _grip  # noqa: F401
+    from sensors.drivers.gripper import huiling_zefg_c65 as _grip_huiling  # noqa: F401
     from sensors.drivers.pipeline import collect as _pipe  # noqa: F401

@@ -23,6 +23,16 @@ defaults:
     init_on_open: false
     # false: read REG_POSITION_FB; true: read last successful write target
     fake: false
+  # 慧灵 Z-EFG-C65（kind=gripper_huiling）；协议同 Desktop/慧灵C65/huiling_clean
+  gripper_huiling:
+    baudrate: 115200
+    slave_id: 1
+    timeout_ms: 300
+    default_speed_mm_s: 50
+    default_current_a: 0.3
+    init_on_open: false
+    position_min_mm: 0.0
+    position_max_mm: 65.0
   ft:
     baudrate: 460800
     timeout_ms: 500
@@ -87,6 +97,18 @@ devices:
       write_offset: [0.0]
       # Unreliable feedback: set true to return last commanded position on read()
       fake: false
+
+  # 慧灵 Z-EFG-C65：Windows 例 endpoint: "COM3"；Linux by-id 串口
+  - id: gripper-huiling
+    kind: gripper_huiling
+    name: "慧灵 Z-EFG-C65"
+    endpoint: "COM3"
+    params:
+      baudrate: 115200
+      slave_id: 1
+      default_speed_mm_s: 50
+      default_current_a: 0.3
+      init_on_open: false
 
   - id: rs-left
     kind: realsense

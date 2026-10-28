@@ -1,0 +1,7 @@
+flowchart LR
+  A["robot.xml / 手册图 / 示教"] --> B["连杆长度、零位偏置、基座轴向"]
+  B --> C["DH 表 + T_base"]
+  C --> D["fk_flange"]
+  D --> E["ik_flange 数值逆解"]
+  E --> D
+  E --> F["对外接口与校验"]

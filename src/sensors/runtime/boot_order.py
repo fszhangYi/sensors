@@ -6,7 +6,8 @@ BOOT_ORDER = [
     "arm",        # ZMQ server :6001 (ur|elite) — control path
     "arm_read",   # Elite EC monitor-only (DCS read, never command)
     "gello",      # Dynamixel leader client
-    "gripper",    # DH AG95 (often opened inside arm server)
+    "gripper",           # DH AG95
+    "gripper_huiling",   # 慧灵 Z-EFG-C65
     "realsense",  # left / right / middle
     "pipeline",   # collection_flag + mosaic/joint SHM + remote :12345
 ]

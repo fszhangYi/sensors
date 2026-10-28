@@ -70,7 +70,7 @@ When unsure where a change belongs, **default to extending `sensors`**, not fork
 | **Role** | Config-driven sensor SDK: protocol, registry, drivers, `SensorManager`, CLI |
 | **Depends on** | — (is the core) |
 | **Entry** | CLI `sensors` (`list` / `probe` / `read` / `kinds`); Python `from sensors...` |
-| **Kinds (typical)** | `bus`, `arm` / arm write, `gello`, `gripper`, `realsense`, `pipeline`, `ft`, `tactile` |
+| **Kinds (typical)** | `bus`, `arm` / arm write, `gello`, `gripper` (DH AG95), `gripper_huiling` (慧灵 Z-EFG-C65), `realsense`, `pipeline`, `ft`, `tactile` |
 | **Docs** | `README.md`, `docs/elite-cs-vs-ec.md`, `src/sensors/kinematics/`, `src/sensors/cs66_kinematics/` |
 | **Must not** | Be reimplemented inside apps; receive app-only UI code |
 

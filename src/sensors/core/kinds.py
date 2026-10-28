@@ -13,7 +13,8 @@ class SensorKind(str, Enum):
     ARM_CS_READ = "arm_cs_read"  # Elite CS Primary/RTSI read — never command
     ARM_CS_WRITE = "arm_cs_write"  # Elite CS EliteDriver servoj — gated by arm/disarm
     GELLO = "gello"
-    GRIPPER = "gripper"
+    GRIPPER = "gripper"  # DH AG95 Modbus
+    GRIPPER_HUILING = "gripper_huiling"  # 慧灵 Z-EFG-C65 Modbus
     REALSENSE = "realsense"
     PIPELINE = "pipeline"
     FT = "ft"
