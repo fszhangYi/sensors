@@ -43,6 +43,43 @@ def _load_yaml(path: Path) -> dict[str, Any]:
     return data
 
 
+def _try_resolve_recipe_file(raw: str, *, base: Path) -> str | None:
+    """Best-effort absolute path for a recipe relative to the sensors YAML dir."""
+    name = Path(raw).name
+    for cand in (
+        Path(raw).expanduser(),
+        base / raw,
+        base / "rtsi" / name,
+        base / "configs" / "rtsi" / name,
+        Path.cwd() / raw,
+        Path.cwd() / "rtsi" / name,
+        Path.cwd() / "configs" / "rtsi" / name,
+    ):
+        try:
+            if cand.is_file():
+                return str(cand.resolve())
+        except OSError:
+            continue
+    return None
+
+
+def _absolutize_rtsi_recipes(devices: list[Any], *, base: Path) -> None:
+    """Rewrite relative RTSI recipe paths against the sensors YAML directory."""
+    for dev in devices:
+        if not isinstance(dev, Mapping):
+            continue
+        params = dev.get("params")
+        if not isinstance(params, dict):
+            continue
+        for key in ("rtsi_output_recipe", "rtsi_input_recipe"):
+            raw = params.get(key)
+            if not raw:
+                continue
+            resolved = _try_resolve_recipe_file(str(raw), base=base)
+            if resolved:
+                params[key] = resolved
+
+
 def load_bundle_config(path: str | Path) -> BundleConfig:
     root = Path(path).resolve()
     data = _load_yaml(root)
@@ -60,6 +97,10 @@ def load_bundle_config(path: str | Path) -> BundleConfig:
             item.setdefault("id", did)
             normalized.append(item)
         merged["devices"] = normalized
+        devices = merged["devices"]
+
+    if isinstance(devices, list):
+        _absolutize_rtsi_recipes(devices, base=root.parent)
 
     return BundleConfig.model_validate(merged)
 

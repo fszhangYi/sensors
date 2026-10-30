@@ -133,6 +133,7 @@ class HuilingZefgC65Sensor(Sensor):
         self._ser = None
         self._io_lock = threading.RLock()
         self._tick = 0
+        self._initialized = False
         self._last_cmd_mm: float | None = None
         self._last_cmd_t: float | None = None
 
@@ -188,6 +189,7 @@ class HuilingZefgC65Sensor(Sensor):
             return
         if self.ctx.dry_run:
             self._opened = True
+            self._initialized = False
             return
         if serial is None:
             raise RuntimeError("pyserial required for gripper_huiling")
@@ -216,11 +218,28 @@ class HuilingZefgC65Sensor(Sensor):
         self._opened = False
         self._initialized = False
 
+    def _finish_init_ok(self, *, init_code: int, t0: float) -> dict[str, Any]:
+        self._initialized = True
+        # Best-effort defaults; do not fail init if speed/current write glitches.
+        self._write_float(REG_SPEED, self.default_speed_mm_s)
+        self._write_float(REG_CURRENT, self.default_current_a)
+        return {
+            "ok": True,
+            "initialized": True,
+            "init_code": int(init_code),
+            "kind": self.kind.value,
+            "init_ms": (time.perf_counter() - t0) * 1000.0,
+        }
+
     def initialize(self, **options: Any) -> dict[str, Any]:
-        """手动找零（REG_INIT=1）。行程内勿放物体。init_code==5 为完成。"""
+        """手动找零（REG_INIT=1）。行程内勿放物体。init_code==5 为完成。
+
+        Holds ``_io_lock`` for the whole sequence so gripper_read's poll
+        cannot interleave Modbus frames and steal init responses.
+        """
         if not self._opened:
             raise RuntimeError(f"{self.id}: call open() before initialize()")
-        timeout_s = float(options.get("timeout_s", 15.0))
+        timeout_s = float(options.get("timeout_s", 30.0))
         if self.ctx.dry_run:
             self._initialized = True
             return {
@@ -231,41 +250,44 @@ class HuilingZefgC65Sensor(Sensor):
                 "dry_run": True,
             }
         t0 = time.perf_counter()
-        if not self._write_u16(REG_INIT, 1):
+        with self._io_lock:
+            # Already homed — do not re-trigger REG_INIT (can look like a no-op).
+            st0 = self._read_status_block()
+            if st0 is not None and int(st0["init_code"]) == INIT_DONE_CODE:
+                return self._finish_init_ok(init_code=INIT_DONE_CODE, t0=t0)
+
+            wrote = self._write_u16(REG_INIT, 1)
+            if not wrote:
+                # Some USB-RS485 dongles drop/mangle FC06 echoes; re-check status.
+                st_fail = self._read_status_block()
+                if st_fail is not None and int(st_fail["init_code"]) == INIT_DONE_CODE:
+                    return self._finish_init_ok(init_code=INIT_DONE_CODE, t0=t0)
+                return {
+                    "ok": False,
+                    "initialized": False,
+                    "init_code": None if st_fail is None else int(st_fail["init_code"]),
+                    "error": "write REG_INIT failed (no FC06 echo; check COM/RS485)",
+                    "kind": self.kind.value,
+                    "init_ms": (time.perf_counter() - t0) * 1000.0,
+                }
+            deadline = time.time() + timeout_s
+            last_code: int | None = None
+            while time.time() < deadline:
+                st = self._read_status_block()
+                if st is not None:
+                    last_code = int(st["init_code"])
+                    if last_code == INIT_DONE_CODE:
+                        return self._finish_init_ok(init_code=last_code, t0=t0)
+                time.sleep(0.05)
+            self._initialized = False
             return {
                 "ok": False,
                 "initialized": False,
-                "error": "write REG_INIT failed",
+                "init_code": last_code,
+                "error": f"init timeout ({timeout_s}s); last init_code={last_code}",
                 "kind": self.kind.value,
+                "init_ms": (time.perf_counter() - t0) * 1000.0,
             }
-        deadline = time.time() + timeout_s
-        last_code: int | None = None
-        while time.time() < deadline:
-            st = self._read_status_block()
-            if st is not None:
-                last_code = int(st["init_code"])
-                if last_code == INIT_DONE_CODE:
-                    self._initialized = True
-                    # Apply default motion params after init.
-                    self._write_float(REG_SPEED, self.default_speed_mm_s)
-                    self._write_float(REG_CURRENT, self.default_current_a)
-                    return {
-                        "ok": True,
-                        "initialized": True,
-                        "init_code": last_code,
-                        "kind": self.kind.value,
-                        "init_ms": (time.perf_counter() - t0) * 1000.0,
-                    }
-            time.sleep(0.05)
-        self._initialized = False
-        return {
-            "ok": False,
-            "initialized": False,
-            "init_code": last_code,
-            "error": f"init timeout ({timeout_s}s); last init_code={last_code}",
-            "kind": self.kind.value,
-            "init_ms": (time.perf_counter() - t0) * 1000.0,
-        }
 
     # ---- Modbus helpers -----------------------------------------------------
 
@@ -311,7 +333,9 @@ class HuilingZefgC65Sensor(Sensor):
         req = struct.pack(">BBHH", self.slave_id, 0x06, address, value)
         req += struct.pack("<H", _crc16_modbus(req))
         body = self._transact(req, min_length=8)
-        return body is not None and body == req[:-2]
+        # Accept any valid FC06 reply (exact echo is ideal but some adapters
+        # alter padding; DH AG95 driver only checks length).
+        return body is not None and len(body) >= 6 and body[1] == 0x06
 
     def _write_registers(self, address: int, payload: bytes) -> bool:
         if len(payload) == 0 or len(payload) % 2:
@@ -328,8 +352,7 @@ class HuilingZefgC65Sensor(Sensor):
         req = head + payload
         req += struct.pack("<H", _crc16_modbus(req))
         body = self._transact(req, min_length=8)
-        expect = struct.pack(">BBHH", self.slave_id, 0x10, address, count)
-        return body is not None and body == expect
+        return body is not None and len(body) >= 6 and body[1] == 0x10
 
     def _write_float(self, address: int, value: float) -> bool:
         return self._write_registers(address, struct.pack(">f", float(value)))
@@ -400,11 +423,18 @@ class HuilingZefgC65Sensor(Sensor):
             }
         st = self._read_status_block()
         if st is None:
+            port_ok = _port_present(self.port)
             return {
                 "ts": time.time(),
                 "tick": self._tick,
                 "ok": False,
-                "error": "status read failed",
+                "dry_run": False,
+                "error": (
+                    f"status read failed on {self.port or '(no port)'}"
+                    + ("" if port_ok else " (COM missing — plug in USB-RS485)")
+                ),
+                "port": self.port,
+                "port_present": port_ok,
                 "read_ms": (time.perf_counter() - t0) * 1000.0,
             }
         if int(st["init_code"]) == INIT_DONE_CODE:
@@ -414,6 +444,7 @@ class HuilingZefgC65Sensor(Sensor):
             "ts": time.time(),
             "tick": self._tick,
             "ok": True,
+            "dry_run": False,
             "position_mm": mm,
             "speed_mm_s": float(st["speed_mm_s"]),
             "current_a": float(st["current_a"]),
@@ -457,9 +488,6 @@ class HuilingZefgC65Sensor(Sensor):
                 "error": "need position_mm|position_norm|open|close and/or speed_mm_s|current_a",
             }
 
-        if not self._require_initialized():
-            return {"ok": False, "error": "gripper not initialized; call initialize first (init_code==5)"}
-
         try:
             if speed is not None:
                 speed = _clamp("speed_mm_s", float(speed), SPEED_MIN_MM_S, SPEED_MAX_MM_S)
@@ -489,34 +517,56 @@ class HuilingZefgC65Sensor(Sensor):
                 "write_ms": (time.perf_counter() - t0) * 1000.0,
             }
 
-        ok = True
-        if speed is not None:
-            ok = self._write_float(REG_SPEED, float(speed)) and ok
-        if current is not None:
-            ok = self._write_float(REG_CURRENT, float(current)) and ok
-        if position_mm is not None:
-            ok = self._write_float(REG_POSITION, float(position_mm)) and ok
-            if ok:
-                self._last_cmd_mm = float(position_mm)
-                self._last_cmd_t = time.time()
+        # Exclusive bus section: status check + writes must not interleave with read agent.
+        with self._io_lock:
+            if not self._require_initialized():
+                st = self._read_status_block()
+                if st is None:
+                    return {
+                        "ok": False,
+                        "error": (
+                            f"gripper status read failed on {self.port or '(no port)'} "
+                            "(check USB-RS485 / COM, baud 115200, slave_id; "
+                            "then click 初始化 until init_code==5)"
+                        ),
+                    }
+                return {
+                    "ok": False,
+                    "error": (
+                        "gripper not initialized; call initialize first "
+                        f"(init_code={st.get('init_code')}, need {INIT_DONE_CODE})"
+                    ),
+                    "init_code": int(st["init_code"]),
+                }
 
-        wait_ms = int(command.get("wait_ms", 0) or 0)
-        if ok and wait_ms > 0:
-            time.sleep(wait_ms / 1000.0)
+            ok = True
+            if speed is not None:
+                ok = self._write_float(REG_SPEED, float(speed)) and ok
+            if current is not None:
+                ok = self._write_float(REG_CURRENT, float(current)) and ok
+            if position_mm is not None:
+                ok = self._write_float(REG_POSITION, float(position_mm)) and ok
+                if ok:
+                    self._last_cmd_mm = float(position_mm)
+                    self._last_cmd_t = time.time()
 
-        out: dict[str, Any] = {
-            "ok": ok,
-            "position_mm": position_mm,
-            "position_norm": None if position_mm is None else self._mm_to_norm(position_mm),
-            "speed_mm_s": speed,
-            "current_a": current,
-            "write_ms": (time.perf_counter() - t0) * 1000.0,
-            "wait_ms": wait_ms,
-            "kind": self.kind.value,
-        }
-        if not ok:
-            out["error"] = "modbus write failed (timeout / CRC / exception)"
-        return out
+            wait_ms = int(command.get("wait_ms", 0) or 0)
+            if ok and wait_ms > 0:
+                time.sleep(wait_ms / 1000.0)
+
+            out: dict[str, Any] = {
+                "ok": ok,
+                "position_mm": position_mm,
+                "position_norm": None if position_mm is None else self._mm_to_norm(position_mm),
+                "speed_mm_s": speed,
+                "current_a": current,
+                "write_ms": (time.perf_counter() - t0) * 1000.0,
+                "wait_ms": wait_ms,
+                "kind": self.kind.value,
+            }
+            if not ok:
+                out["error"] = "modbus write failed (timeout / CRC / exception)"
+            return out
 
     def probe_max_read_hz(self, duration_s: float = 5.0) -> dict[str, Any]:
         from sensors.core.rate_probe import clamp_duration, rate_probe_fail, rate_probe_ok

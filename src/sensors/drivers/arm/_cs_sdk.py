@@ -231,31 +231,64 @@ def close_cs_driver(driver: Any | None, *, wait_ms: int = 2000) -> None:
         pass
 
 
-def resolve_rtsi_recipe_path(path: str) -> str:
-    """Resolve RTSI recipe path (absolute, cwd, or sensors-arm/configs)."""
+def resolve_rtsi_recipe_path(path: str, *, anchors: list[Path] | None = None) -> str:
+    """Resolve RTSI recipe path (absolute, anchors, cwd, frozen configs, sensors-arm)."""
+    import os
+    import sys
+
     raw = str(path or "").strip()
     if not raw:
         raise FileNotFoundError("empty RTSI recipe path")
+    name = Path(raw).name
     candidates: list[Path] = [Path(raw).expanduser()]
     if not candidates[0].is_absolute():
+        for anchor in anchors or []:
+            try:
+                base = Path(anchor).expanduser()
+                candidates.append(base / raw)
+                candidates.append(base / "rtsi" / name)
+                candidates.append(base / "configs" / "rtsi" / name)
+            except OSError:
+                continue
         cwd = Path.cwd()
         candidates.append(cwd / raw)
-        candidates.append(cwd / "configs" / "rtsi" / Path(raw).name)
+        candidates.append(cwd / "rtsi" / name)
+        candidates.append(cwd / "configs" / "rtsi" / name)
+        # Desktop seed: %APPDATA%/sensors-dcs/{configs,run/configs}/rtsi
+        appdata = os.environ.get("APPDATA") or os.environ.get("SENSORS_DCS_USER_DATA")
+        if appdata:
+            root = Path(appdata)
+            if root.name.lower() != "sensors-dcs":
+                root = root / "sensors-dcs"
+            candidates.append(root / "configs" / "rtsi" / name)
+            candidates.append(root / "run" / "configs" / "rtsi" / name)
+        # PyInstaller onedir: _internal/configs/rtsi
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            candidates.append(Path(meipass) / "configs" / "rtsi" / name)
+        exe = Path(sys.executable).resolve().parent
+        candidates.append(exe / "_internal" / "configs" / "rtsi" / name)
+        candidates.append(exe / "configs" / "rtsi" / name)
         # sensors-arm package layout: <repo>/configs/rtsi/...
         here = Path(__file__).resolve()
         for parent in here.parents:
             if (parent / "configs" / "sensors_multi.yaml").is_file():
                 candidates.append(parent / raw)
-                candidates.append(parent / "configs" / "rtsi" / Path(raw).name)
+                candidates.append(parent / "configs" / "rtsi" / name)
                 break
+    seen: set[str] = set()
     for cand in candidates:
+        key = str(cand)
+        if key in seen:
+            continue
+        seen.add(key)
         try:
             if cand.is_file():
                 return str(cand.resolve())
         except OSError:
             continue
     raise FileNotFoundError(
-        f"RTSI recipe not found: {raw!r} (tried cwd and sensors-arm/configs/rtsi)"
+        f"RTSI recipe not found: {raw!r} (tried anchors/cwd/AppData/frozen configs/rtsi)"
     )
 
 
@@ -265,15 +298,16 @@ def open_cs_rtsi(
     output_recipe_file: str,
     input_recipe_file: str = "",
     frequency: float = 125.0,
+    recipe_anchors: list[Path] | None = None,
 ) -> Any | None:
     """Optional RTSI IO for joint feedback. Returns None if recipes unset."""
     out = str(output_recipe_file or "").strip()
     if not out:
         return None
     sdk = import_elite_cs_sdk()
-    out_path = resolve_rtsi_recipe_path(out)
+    out_path = resolve_rtsi_recipe_path(out, anchors=recipe_anchors)
     inp_raw = str(input_recipe_file or "").strip() or out
-    inp_path = resolve_rtsi_recipe_path(inp_raw)
+    inp_path = resolve_rtsi_recipe_path(inp_raw, anchors=recipe_anchors)
     rtsi = sdk.RtsiIOInterface(out_path, inp_path, float(frequency))
     if not rtsi.connect(str(robot_ip)):
         raise RuntimeError(

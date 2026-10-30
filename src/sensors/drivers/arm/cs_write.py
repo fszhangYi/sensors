@@ -250,6 +250,34 @@ class EliteCsArmWriteSensor(Sensor):
                 "elite_cs_sdk required for arm_cs_write open() when dry_run=false. "
                 "Install Elite_Robots_CS_SDK_Python (not elirobots)."
             ) from e
+        except Exception as e:  # noqa: BLE001
+            msg = str(e)
+            low = msg.lower()
+            # Windows WSAEACCES (10013) / reverse bind — often firewall or leftover EliteDriver.
+            if (
+                "访问权限不允许" in msg
+                or "socket disconnected" in low
+                or "wsaeacces" in low
+                or "10013" in msg
+            ):
+                raise RuntimeError(
+                    f"{self.id}: CS EliteDriver socket failed ({self.robot_ip}, "
+                    f"local_ip={self.local_ip or '(auto)'}): {msg}. "
+                    "Usually PC reverse ports 50001/50003/50004: close other sensors-dcs/"
+                    "sensors-arm/SDK sessions; wait ~60s for TIME_WAIT; allow inbound TCP "
+                    "50001,50003,50004 (Windows firewall — python.exe if not using "
+                    "sensors-dcs.exe); confirm teach pendant Remote/Auto + ExternalControl; "
+                    "local_ip must be the NIC the arm can reach (same subnet as robot_ip)."
+                ) from e
+            if "primary" in low or "30001" in msg or "socket connect" in low:
+                raise RuntimeError(
+                    f"{self.id}: CS Primary connect failed ({self.robot_ip}:30001): {msg}. "
+                    "RTSI 30004 can be up while Primary is down. On the teach pendant: "
+                    "power on controller, Remote/Auto, enable remote control; "
+                    "close any other EliteDriver/SDK session; then retry. "
+                    f"PC local_ip={self.local_ip or '(auto)'}."
+                ) from e
+            raise
         self._opened = True
         self._armed = False
         self._initialized = False
