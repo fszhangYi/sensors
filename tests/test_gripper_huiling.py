@@ -47,3 +47,36 @@ def test_norm_roundtrip() -> None:
     assert abs(s._norm_to_mm(0.0) - 0.0) < 1e-9
     assert abs(s._norm_to_mm(1.0) - 65.0) < 1e-9
     assert abs(s._mm_to_norm(32.5) - 0.5) < 1e-9
+
+
+def test_initialize_does_not_hold_io_lock_across_wait() -> None:
+    """Regression: init used to hold _io_lock for the whole timeout and starve read."""
+    import threading
+
+    s = HuilingZefgC65Sensor(
+        "gripper-huiling",
+        {"endpoint": "COM3"},
+        ctx=SensorContext(dry_run=True),
+    )
+    s.open()
+    # Dry-run initialize returns immediately; assert lock is free afterward.
+    assert s.initialize().get("ok") is True
+    assert s._io_lock.acquire(blocking=False)
+    s._io_lock.release()
+    # Concurrent read while a dummy holder waits should still be possible via RLock owner.
+    held = threading.Event()
+    released = threading.Event()
+
+    def holder() -> None:
+        with s._io_lock:
+            held.set()
+            released.wait(timeout=1.0)
+
+    t = threading.Thread(target=holder, daemon=True)
+    t.start()
+    assert held.wait(timeout=1.0)
+    # Non-owner cannot take the lock non-blocking (same as gripper_read agent).
+    assert s._io_lock.acquire(blocking=False) is False
+    released.set()
+    t.join(timeout=1.0)
+    s.close()

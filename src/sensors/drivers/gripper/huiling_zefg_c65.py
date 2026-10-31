@@ -234,8 +234,9 @@ class HuilingZefgC65Sensor(Sensor):
     def initialize(self, **options: Any) -> dict[str, Any]:
         """手动找零（REG_INIT=1）。行程内勿放物体。init_code==5 为完成。
 
-        Holds ``_io_lock`` for the whole sequence so gripper_read's poll
-        cannot interleave Modbus frames and steal init responses.
+        Each Modbus exchange still runs under ``_io_lock`` (via ``_transact``),
+        but the lock is **released between poll sleeps** so gripper_read /
+        concurrent writes are not starved for up to ``timeout_s``.
         """
         if not self._opened:
             raise RuntimeError(f"{self.id}: call open() before initialize()")
@@ -250,44 +251,44 @@ class HuilingZefgC65Sensor(Sensor):
                 "dry_run": True,
             }
         t0 = time.perf_counter()
-        with self._io_lock:
-            # Already homed — do not re-trigger REG_INIT (can look like a no-op).
-            st0 = self._read_status_block()
-            if st0 is not None and int(st0["init_code"]) == INIT_DONE_CODE:
-                return self._finish_init_ok(init_code=INIT_DONE_CODE, t0=t0)
+        # Already homed — do not re-trigger REG_INIT (can look like a no-op).
+        st0 = self._read_status_block()
+        if st0 is not None and int(st0["init_code"]) == INIT_DONE_CODE:
+            return self._finish_init_ok(init_code=INIT_DONE_CODE, t0=t0)
 
-            wrote = self._write_u16(REG_INIT, 1)
-            if not wrote:
-                # Some USB-RS485 dongles drop/mangle FC06 echoes; re-check status.
-                st_fail = self._read_status_block()
-                if st_fail is not None and int(st_fail["init_code"]) == INIT_DONE_CODE:
-                    return self._finish_init_ok(init_code=INIT_DONE_CODE, t0=t0)
-                return {
-                    "ok": False,
-                    "initialized": False,
-                    "init_code": None if st_fail is None else int(st_fail["init_code"]),
-                    "error": "write REG_INIT failed (no FC06 echo; check COM/RS485)",
-                    "kind": self.kind.value,
-                    "init_ms": (time.perf_counter() - t0) * 1000.0,
-                }
-            deadline = time.time() + timeout_s
-            last_code: int | None = None
-            while time.time() < deadline:
-                st = self._read_status_block()
-                if st is not None:
-                    last_code = int(st["init_code"])
-                    if last_code == INIT_DONE_CODE:
-                        return self._finish_init_ok(init_code=last_code, t0=t0)
-                time.sleep(0.05)
-            self._initialized = False
+        wrote = self._write_u16(REG_INIT, 1)
+        if not wrote:
+            # Some USB-RS485 dongles drop/mangle FC06 echoes; re-check status.
+            st_fail = self._read_status_block()
+            if st_fail is not None and int(st_fail["init_code"]) == INIT_DONE_CODE:
+                return self._finish_init_ok(init_code=INIT_DONE_CODE, t0=t0)
             return {
                 "ok": False,
                 "initialized": False,
-                "init_code": last_code,
-                "error": f"init timeout ({timeout_s}s); last init_code={last_code}",
+                "init_code": None if st_fail is None else int(st_fail["init_code"]),
+                "error": "write REG_INIT failed (no FC06 echo; check COM/RS485)",
                 "kind": self.kind.value,
                 "init_ms": (time.perf_counter() - t0) * 1000.0,
             }
+        deadline = time.time() + timeout_s
+        last_code: int | None = None
+        while time.time() < deadline:
+            st = self._read_status_block()
+            if st is not None:
+                last_code = int(st["init_code"])
+                if last_code == INIT_DONE_CODE:
+                    return self._finish_init_ok(init_code=last_code, t0=t0)
+            # Yield the bus so read agent ticks are not all "bus busy".
+            time.sleep(0.05)
+        self._initialized = False
+        return {
+            "ok": False,
+            "initialized": False,
+            "init_code": last_code,
+            "error": f"init timeout ({timeout_s}s); last init_code={last_code}",
+            "kind": self.kind.value,
+            "init_ms": (time.perf_counter() - t0) * 1000.0,
+        }
 
     # ---- Modbus helpers -----------------------------------------------------
 
