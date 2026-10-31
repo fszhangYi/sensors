@@ -116,7 +116,7 @@ sensors/
 | **Depends on** | `./sensors` → `/root/autodl-tmp/sensors`; prefer `./sensors/src` over site-packages |
 | **Default viz** | `http://127.0.0.1:7011/` (`viz_port`; helper scripts may mention 6006) |
 | **Entry** | `sensors-dcs run -c configs/...`; desktop `python -m sensors_dcs.desktop_main`; `./build.sh` |
-| **Docs** | `README.md`, `docs/hik-dataset*.md`, `docs/export-timeline.md`, `docs/gello-arm-*.md`, `docs/arm-write.md`, `docs/known-gaps.md`, `docs/plan.md` |
+| **Docs** | `README.md`, `docs/hik-dataset*.md`, `docs/export-timeline.md`, `docs/gello-arm-*.md`, `docs/arm-write.md`, `docs/known-gaps.md`, `docs/webrtc-embody-fit.md` (preview media plane), `docs/ethercat-embody-fit.md` (fieldbus peripherals), `docs/plan.md` |
 | **Must not** | Fork hik-sensors; use read-only arm agent to command motion; dual-open the same Elite endpoint carelessly |
 
 **When to edit here:** recording pipeline, episode format, hik dataset export, teleop/sync, station peer, DCS viz, release/delta packaging filters.
@@ -276,7 +276,7 @@ sensors-view and embody share visual/auth DNA (teal lab console, Cookie sessions
 sensors/README.md
 sensors/docs/ecosystem.md          ← this file
 sensors-view/README.md + docs/embed-host.md
-sensors-dcs/README.md + docs/known-gaps.md
+sensors-dcs/README.md + docs/known-gaps.md + docs/webrtc-embody-fit.md + docs/ethercat-embody-fit.md
 sensors-arm/docs/split-from-dcs.md
 rs-calibration/README.md
 embody_model_eval/README.md

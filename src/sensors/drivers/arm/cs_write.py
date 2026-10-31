@@ -46,6 +46,8 @@ _DEFAULT_STREAM_MAX_RAD_S = 0.5
 _DEFAULT_SERVOJ_TIMEOUT_MS = 2000
 _DEFAULT_IDLE_TIMEOUT_MS = 30000
 _DEFAULT_KEEPALIVE_S = 2.0
+# Skip keepalive writeIdle while dense servoj_once is active (teleop / abs-ramp).
+_DEFAULT_KEEPALIVE_IDLE_GRACE_S = 0.4
 # If |last_cmd − RTSI| stays under this, stream/jog from last_cmd (no rewind jerk).
 # Larger gap → re-origin on measured RTSI (speed-limit safety).
 _DEFAULT_CMD_CONTINUITY_RAD = 0.10  # ~5.7°
@@ -95,6 +97,9 @@ class EliteCsArmWriteSensor(Sensor):
         self.servoj_timeout_ms = int(config.get("servoj_timeout_ms", _DEFAULT_SERVOJ_TIMEOUT_MS))
         self.idle_timeout_ms = int(config.get("idle_timeout_ms", _DEFAULT_IDLE_TIMEOUT_MS))
         self.keepalive_s = float(config.get("keepalive_s", _DEFAULT_KEEPALIVE_S))
+        self.keepalive_idle_grace_s = float(
+            config.get("keepalive_idle_grace_s", _DEFAULT_KEEPALIVE_IDLE_GRACE_S)
+        )
         self.stream_max_rad_s = float(config.get("stream_max_rad_s", _DEFAULT_STREAM_MAX_RAD_S))
         self.cmd_continuity_rad = float(
             config.get("cmd_continuity_rad", _DEFAULT_CMD_CONTINUITY_RAD)
@@ -121,6 +126,8 @@ class EliteCsArmWriteSensor(Sensor):
         self._last_cmd_rad: list[float] | None = None
         # True after at least one writeServoj in this armed session (skip re-seed).
         self._stream_latched = False
+        # Monotonic time of last successful dense writeServoj (servoj_once).
+        self._last_servoj_mono: float = 0.0
         self._keep_stop = threading.Event()
         self._keep_thread: threading.Thread | None = None
         self._last_keepalive_error: str | None = None
@@ -368,6 +375,7 @@ class EliteCsArmWriteSensor(Sensor):
                 }
             self._last_cmd_rad = list(seed)
             self._stream_latched = False
+            self._last_servoj_mono = 0.0
             self._armed = True
             self._initialized = True
             self._last_keepalive_error = None
@@ -400,14 +408,28 @@ class EliteCsArmWriteSensor(Sensor):
             self._armed = False
             self._initialized = False
             self._stream_latched = False
+            self._last_servoj_mono = 0.0
             try:
                 if self._driver is not None and hasattr(self._driver, "stopControl"):
                     self._driver.stopControl(200)
             except Exception:  # noqa: BLE001
                 pass
 
+    def _dense_servoj_active(self) -> bool:
+        """True while recent dense servoj_once should suppress keepalive writeIdle."""
+        if not self._stream_latched:
+            return False
+        if self._last_servoj_mono <= 0.0:
+            return False
+        grace = max(0.05, float(self.keepalive_idle_grace_s))
+        return (time.monotonic() - self._last_servoj_mono) < grace
+
     def _start_keepalive(self) -> None:
-        """While armed, periodically ``writeIdle`` so ExternalControl does not exit."""
+        """While armed, periodically ``writeIdle`` so ExternalControl does not exit.
+
+        During dense teleop / abs-ramp (``servoj_once`` stream) skip idle so the
+        controller keeps a continuous setpoint; resume idle after grace expires.
+        """
         self._stop_keepalive()
         if self.ctx.dry_run:
             return
@@ -420,10 +442,15 @@ class EliteCsArmWriteSensor(Sensor):
             while not self._keep_stop.wait(interval):
                 if not self._armed:
                     continue
+                if self._dense_servoj_active():
+                    continue
                 if not self._io_lock.acquire(blocking=False):
                     continue
                 try:
                     if not self._armed or self._driver is None:
+                        continue
+                    # Re-check under lock: a servoj may have just latched.
+                    if self._dense_servoj_active():
                         continue
                     connected = bool(
                         hasattr(self._driver, "isRobotConnected")
@@ -484,6 +511,7 @@ class EliteCsArmWriteSensor(Sensor):
         self._armed = False
         self._initialized = False
         self._stream_latched = False
+        self._last_servoj_mono = 0.0
         out: dict[str, Any] = {
             "ok": err is None,
             "armed": False,
@@ -706,6 +734,7 @@ class EliteCsArmWriteSensor(Sensor):
             with self._io_lock:
                 self._last_cmd_rad = list(joints_rad)
                 self._stream_latched = True
+                self._last_servoj_mono = time.monotonic()
             return {
                 "ok": True,
                 "joints_rad": list(joints_rad),
@@ -786,6 +815,7 @@ class EliteCsArmWriteSensor(Sensor):
                 self._armed = False
                 self._initialized = False
                 self._stream_latched = False
+                self._last_servoj_mono = 0.0
                 return {
                     "ok": False,
                     "error": (
@@ -804,6 +834,7 @@ class EliteCsArmWriteSensor(Sensor):
                 }
             self._last_cmd_rad = list(joints_rad)
             self._stream_latched = True
+            self._last_servoj_mono = time.monotonic()
             if idle_after:
                 self._write_idle_unlocked(self.idle_timeout_ms)
         return {
@@ -1119,7 +1150,9 @@ class EliteCsArmWriteSensor(Sensor):
             )
         else:
             result = self._servoj_stream(target)
-        result["armed"] = bool(self._armed and result.get("ok"))
+        # Keep latch semantics: command ok/fail must not clear armed in the result
+        # (UI/agent snap armed from this field; anding with ok made jog buttons flicker).
+        result["armed"] = bool(self._armed)
         if jog_meta:
             result.update(jog_meta)
         return result
