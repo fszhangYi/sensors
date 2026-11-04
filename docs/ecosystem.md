@@ -87,7 +87,7 @@ sensors/
   tests/
 ```
 
-**When to edit here:** new/changed hardware protocol, kind registration, shared kinematics, Elite EC/CS adapters, config schema used by multiple apps.
+**When to edit here:** new/changed hardware protocol, kind registration, shared kinematics, Elite EC/CS adapters, config schema used by multiple apps, **shared trajectory safety / collision math** (`sensors.traj_safety` — see [`traj-safety-sdk.md`](traj-safety-sdk.md); consumers: sensors-dcs thick M2, later embody_model_eval).
 
 ---
 

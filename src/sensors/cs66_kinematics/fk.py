@@ -13,7 +13,7 @@ from typing import Optional, Sequence, Union
 import numpy as np
 
 from .config import get_kinematic_config
-from .dh import fk_from_config
+from .dh import fk_from_config, fk_link_poses_from_config
 from .model import JointAngleMode, KinematicConfig
 
 
@@ -132,6 +132,45 @@ def fk_flange(
     T0 = cfg.T_base if T_base is None else np.asarray(T_base, dtype=float).copy()
 
     return fk_from_config(q, T0, cfg)
+
+
+def fk_link_poses(
+    joint_deg: Union[np.ndarray, Sequence[float]],
+    *,
+    T_base: Optional[np.ndarray] = None,
+    joint_direction: Optional[np.ndarray] = None,
+    joint_angle_mode: JointAngleMode = "machine_deg",
+    kin_cfg: Optional[KinematicConfig] = None,
+) -> list:
+    """Return 7 homogeneous poses ``[base, J1..J6]`` in meters."""
+    cfg = kin_cfg or get_kinematic_config()
+    if int(cfg.manipulator_type) != 1:
+        raise ValueError(f"unsupported manipulator_type={cfg.manipulator_type}")
+    jdeg = np.asarray(joint_deg, dtype=float).reshape(6)
+    q = joint_q_rad(jdeg, joint_angle_mode, cfg, joint_direction)
+    T0 = cfg.T_base if T_base is None else np.asarray(T_base, dtype=float)
+    return fk_link_poses_from_config(q, T0, cfg)
+
+
+def fk_link_poses_from_joints_rad(
+    joints_rad: Sequence[float],
+    *,
+    profile_id: Optional[str] = None,
+    kin_cfg: Optional[KinematicConfig] = None,
+    joint_angle_mode: Optional[JointAngleMode] = None,
+) -> list:
+    """Link poses from joints already in radians (DCS convention)."""
+    from .yaml_profile import get_profile
+
+    j = [float(x) for x in list(joints_rad)[:6]]
+    if len(j) < 6:
+        j = j + [0.0] * (6 - len(j))
+    jdeg = np.rad2deg(np.asarray(j, dtype=float))
+    cfg = kin_cfg or get_kinematic_config(profile_id)
+    mode = joint_angle_mode
+    if mode is None:
+        mode = get_profile(profile_id).default_joint_angle_mode
+    return fk_link_poses(jdeg, joint_angle_mode=mode, kin_cfg=cfg)
 
 
 def fk_tool(joint_deg: Union[np.ndarray, Sequence[float]], T_flange_tool: np.ndarray, **kwargs) -> np.ndarray:

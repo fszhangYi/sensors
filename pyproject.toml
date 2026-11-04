@@ -35,6 +35,11 @@ sensors = "sensors.cli.main:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"sensors.traj_safety" = ["profiles/*.yaml"]
+"sensors.cs66_kinematics" = ["profiles/*.yaml"]
+"sensors.cs66_kin_g26562" = ["profiles/*.yaml"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]

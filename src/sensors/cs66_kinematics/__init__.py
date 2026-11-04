@@ -17,7 +17,14 @@ from .config import (
     clear_kinematic_config_cache,
     get_kinematic_config,
 )
-from .fk import fk_flange, fk_position_mm, fk_tool, joint_q_rad
+from .fk import (
+    fk_flange,
+    fk_link_poses,
+    fk_link_poses_from_joints_rad,
+    fk_position_mm,
+    fk_tool,
+    joint_q_rad,
+)
 from .yaml_profile import (
     get_profile,
     list_profile_ids,
@@ -33,6 +40,8 @@ __all__ = [
     "fk_tool",
     "fk_position_mm",
     "fk_flange_from_joints_rad",
+    "fk_link_poses",
+    "fk_link_poses_from_joints_rad",
     "make_hik_fk_fn",
     "ik_flange",
     "joint_q_rad",

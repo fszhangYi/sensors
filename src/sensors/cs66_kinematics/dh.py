@@ -9,7 +9,7 @@ from __future__ import annotations
 """
 
 import math
-from typing import Tuple
+from typing import List, Tuple
 
 import numpy as np
 
@@ -169,7 +169,19 @@ def fk_elite_mdh(
 
     Per joint i: fixed ``RotX(alpha_i) * Trans(a_i, 0, d_i)``, then variable ``RotZ(q_i)``.
     """
+    return fk_elite_mdh_link_poses(q_rad, T_base, alpha, a, d)[-1]
+
+
+def fk_elite_mdh_link_poses(
+    q_rad: np.ndarray,
+    T_base: np.ndarray,
+    alpha: np.ndarray,
+    a: np.ndarray,
+    d: np.ndarray,
+) -> List[np.ndarray]:
+    """MDH cumulative poses: ``[T_base, after J1, ..., after J6]`` (7 frames)."""
     T = np.asarray(T_base, dtype=float).copy()
+    out: List[np.ndarray] = [T.copy()]
     qv = np.asarray(q_rad, dtype=float).reshape(6)
     al = np.asarray(alpha, dtype=float).reshape(6)
     aa = np.asarray(a, dtype=float).reshape(6)
@@ -177,14 +189,41 @@ def fk_elite_mdh(
     for i in range(6):
         T = T @ (_rot_x(float(al[i])) @ _trans(float(aa[i]), 0.0, float(dd[i])))
         T = T @ _rot_z(float(qv[i]))
-    return T
+        out.append(T.copy())
+    return out
 
 
-def fk_from_config(q_rad: np.ndarray, T_base: np.ndarray, cfg: KinematicConfig) -> np.ndarray:
-    """Dispatch FK by ``cfg.geometry_kind``."""
+def fk_standard_dh_link_poses(
+    q_rad: np.ndarray,
+    T_base: np.ndarray,
+    dh_table: Tuple[DhRow, ...],
+) -> List[np.ndarray]:
+    """Standard-DH cumulative poses (same layout as legacy ``fk_link_poses_accumulated``)."""
+    T = np.asarray(T_base, dtype=float).copy()
+    out: List[np.ndarray] = [T.copy()]
+    qv = np.asarray(q_rad, dtype=float).reshape(6)
+    for i, (th_off, d, a, al) in enumerate(dh_table):
+        T = T @ standard_dh_link(th_off + float(qv[i]), d, a, al)
+        out.append(T.copy())
+    return out
+
+
+def fk_link_poses_from_config(
+    q_rad: np.ndarray,
+    T_base: np.ndarray,
+    cfg: KinematicConfig,
+) -> List[np.ndarray]:
+    """Dispatch link-pose chain by ``cfg.geometry_kind`` → 7×4×4."""
     kind = getattr(cfg, "geometry_kind", "standard_dh") or "standard_dh"
     if kind == "elite_mdh":
         if cfg.mdh_alpha_rad is None or cfg.mdh_a_m is None or cfg.mdh_d_m is None:
             raise ValueError("elite_mdh config missing mdh_alpha_rad / mdh_a_m / mdh_d_m")
-        return fk_elite_mdh(q_rad, T_base, cfg.mdh_alpha_rad, cfg.mdh_a_m, cfg.mdh_d_m)
-    return fk_standard_dh(q_rad, T_base, cfg.dh_table)
+        return fk_elite_mdh_link_poses(
+            q_rad, T_base, cfg.mdh_alpha_rad, cfg.mdh_a_m, cfg.mdh_d_m
+        )
+    return fk_standard_dh_link_poses(q_rad, T_base, cfg.dh_table)
+
+
+def fk_from_config(q_rad: np.ndarray, T_base: np.ndarray, cfg: KinematicConfig) -> np.ndarray:
+    """Dispatch FK by ``cfg.geometry_kind``."""
+    return fk_link_poses_from_config(q_rad, T_base, cfg)[-1]
