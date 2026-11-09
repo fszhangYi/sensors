@@ -29,7 +29,7 @@ src/sensors/
 | RealSense L/R/M | `realsense` | `RealSenseSensor` | pipeline color(+depth) |
 | 数据采集 | `pipeline` | `CollectPipelineSensor` | probe（SHM） |
 | （扩展） | `ft` | `ForceTorqueSensor` | HIK 串口 460800，force[3]+torque[3]；dry-run；≠触觉/夹爪力 |
-| （扩展） | `tactile` | `PaxiniTactileSensor` | 帕西尼 rest_force + 60 点分力（get_paxini_data） |
+| （扩展） | `tactile` | `PaxiniTactileSensor` | 默认 PTS_CB01 串口盒：两块模组，合力 + 分布力，0.1 N/LSB。`transport: dll` 才是旧的 ReadPaxiniLib 60 点 |
 
 每个驱动实现同一协议：`probe()`（只读）/ `open()` / `close()` / `read()`，用 `@register_sensor(kind)` 注册。新增设备：写驱动 + YAML 一条，无需改 Manager。
 

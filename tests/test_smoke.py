@@ -55,10 +55,13 @@ def test_dry_run_open_read_serial_zmq_realsense():
     assert len(ft["wrench"]) == 6
     assert "force_smooth" not in ft
     tac = mgr.read("tactile-paxini")
+    assert tac["transport"] == "pts_cb01"
+    assert tac["model"] == "PXSR-STDDP03G"
     assert len(tac["rest_force"]) == 3
     assert "contact_force" in tac
-    assert len(tac["component_forces"]) == 60
-    assert tac["num"] >= 1
+    assert len(tac["component_forces"]) == 52
+    assert tac["num"] == 2
+    assert len(tac["modules"]) == 2
 
 
 def test_modbus_crc_stable():

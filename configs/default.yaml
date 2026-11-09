@@ -148,9 +148,9 @@ devices:
     name: "帕西尼触觉"
     enabled: true
     params:
-      # hik_gello/gello/robots/get_paxini_data.py — PaxiniHandler
-      dll_path: ""
-      paxini_channel: 5
-      port: ""
+      # PTS_CB01 control box. transport: dll keeps ReadPaxiniLib (60-point DLL).
+      transport: pts_cb01
+      port: COM19
+      baud: 460800
+      model: PXSR-STDDP03G
       group_index: 0
-      dry_run_groups: 2
