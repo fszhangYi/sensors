@@ -53,6 +53,8 @@ joint_vel_max_deg_s: [164.0, 164.0, 210.0, 290.0, 290.0, 290.0]
 joint_vel_min_deg_s: [5.0, 5.0, 5.0, 5.0, 5.0, 5.0]
 # 加速度页未出现在本次示教器信息中 — provisional
 joint_accel_max_deg_s2: [600.0, 600.0, 600.0, 1000.0, 1000.0, 1000.0]
+# 关节力矩上限：示教器无页；Elite ROS2 config/cs66/joint_limits.yaml max_effort (Nm)
+joint_effort_max_nm: [150.0, 150.0, 150.0, 28.0, 28.0, 28.0]
 
 cartesian:
   # 工具速度页未完整拍摄；保留先前 CS66 量级 placeholder

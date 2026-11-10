@@ -59,6 +59,8 @@ class ArmYamlProfile:
     ori_vel_min_deg_s: float
     ori_accel_max_deg_s2: float
     teach_poses: Tuple[TeachPendantPose, ...] = field(default_factory=tuple)
+    # Optional: Elite ROS2 max_effort (Nm); teach pendant has no torque page
+    joint_effort_max_nm: Optional[Tuple[float, float, float, float, float, float]] = None
     # Optional geometry overrides
     mdh_alpha_rad: Optional[Tuple[float, ...]] = None
     mdh_a_m: Optional[Tuple[float, ...]] = None
@@ -200,6 +202,11 @@ def profile_from_mapping(data: Mapping[str, Any], *, source_path: Optional[str] 
         joint_vel_min_deg_s=_require_len6("joint_vel_min_deg_s", data.get("joint_vel_min_deg_s")),
         joint_accel_max_deg_s2=_require_len6(
             "joint_accel_max_deg_s2", data.get("joint_accel_max_deg_s2")
+        ),
+        joint_effort_max_nm=(
+            _require_len6("joint_effort_max_nm", data["joint_effort_max_nm"])
+            if data.get("joint_effort_max_nm") is not None
+            else None
         ),
         cart_vel_max_mm_s=float(cart.get("vel_max_mm_s", 1500.0)),
         cart_vel_min_mm_s=float(cart.get("vel_min_mm_s", 1.0)),
