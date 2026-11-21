@@ -217,16 +217,29 @@ def ensure_cs_motion_ready(
 
 
 def close_cs_driver(driver: Any | None, *, wait_ms: int = 2000) -> None:
+    """Release EliteDriver reverse + Primary sockets (stopControl alone is not enough)."""
     if driver is None:
         return
     try:
         if hasattr(driver, "stopControl"):
-            driver.stopControl(wait_ms)
+            driver.stopControl(max(5, int(wait_ms)))
     except Exception:  # noqa: BLE001
         pass
     try:
         if hasattr(driver, "writeIdle"):
             driver.writeIdle(100)
+    except Exception:  # noqa: BLE001
+        pass
+    # PrimaryClientInterface.disconnect closes 30001 and joins the IO thread.
+    try:
+        primary = driver.primaryPort() if hasattr(driver, "primaryPort") else None
+        if primary is not None and hasattr(primary, "disconnect"):
+            primary.disconnect()
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        if hasattr(driver, "disconnect"):
+            driver.disconnect()
     except Exception:  # noqa: BLE001
         pass
 
@@ -318,10 +331,17 @@ def open_cs_rtsi(
 
 
 def close_cs_rtsi(rtsi: Any | None) -> None:
+    """Drop RTSI recipe lease; required before another client can subscribe same vars."""
     if rtsi is None:
         return
     try:
-        rtsi.disconnect()
+        if hasattr(rtsi, "disconnect"):
+            rtsi.disconnect()
+    except Exception:  # noqa: BLE001
+        pass
+    # Extra settle so controller releases IN_USE recipe vars before next connect.
+    try:
+        time.sleep(0.15)
     except Exception:  # noqa: BLE001
         pass
 
